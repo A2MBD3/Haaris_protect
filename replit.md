@@ -4,6 +4,10 @@
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
+Currently hosts a **Telegram Group Management Bot** (grammY) inside the `@workspace/api-server` artifact. The bot runs alongside the Express server using long polling. It supports moderation, content control, blacklist, captcha verification, and super-admin private commands. Hardcoded super admins: `8074495633`, `5883825451`. Token in `TELEGRAM_BOT_TOKEN` secret. State persisted via Drizzle in PostgreSQL (tables: `super_admins`, `groups`, `group_settings`, `warnings`, `blacklist`, `blacklist_hits`, `filters`, `locks`, `captcha_sessions`, `global_bans`, `scheduled_tasks`).
+
+Bot source lives in `artifacts/api-server/src/bot/`. Schema lives in `lib/db/src/schema/bot.ts`. `grammy` and `@grammyjs/auto-retry` are externalized in `build.mjs` because grammY uses native dynamic platform imports.
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
