@@ -1,5 +1,4 @@
 export function parseDuration(input: string | undefined): number | null {
-  // Returns seconds. null = invalid. 0 = permanent (when allowed).
   if (!input) return null;
   const trimmed = input.trim().toLowerCase();
   if (trimmed === "0" || trimmed === "perm" || trimmed === "permanent") return 0;
@@ -27,9 +26,7 @@ export function formatDuration(sec: number): string {
   return `${sec}s`;
 }
 
-export function parseUserId(
-  input: string | undefined,
-): number | null {
+export function parseUserId(input: string | undefined): number | null {
   if (!input) return null;
   const cleaned = input.replace(/^@/, "").trim();
   if (!/^-?\d+$/.test(cleaned)) return null;
@@ -43,4 +40,30 @@ export function escapeHtml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/** Format a user object for display in logs/messages */
+export function fmtUser(u: { id: number; first_name?: string; last_name?: string; username?: string } | null | undefined): string {
+  if (!u) return "<i>unknown</i>";
+  const name = [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || String(u.id);
+  const tag = u.username ? ` (@${escapeHtml(u.username)})` : ` [<code>${u.id}</code>]`;
+  return `<b>${escapeHtml(name)}</b>${tag}`;
+}
+
+/** Format a telegram context's from-user (the admin/user who triggered the action) */
+export function fmtAdmin(ctx: any): string {
+  return fmtUser(ctx.from);
+}
+
+/** Format a chat for display in logs */
+export function fmtGroupCtx(ctx: any): string {
+  const c = ctx.chat;
+  if (!c) return "<i>unknown chat</i>";
+  const title = "title" in c ? (c.title || "group") : "private";
+  return `<b>${escapeHtml(title)}</b> [<code>${c.id}</code>]`;
+}
+
+/** Format a chat by id + title for display in logs */
+export function fmtGroupById(id: number, title: string): string {
+  return `<b>${escapeHtml(title || "group")}</b> [<code>${id}</code>]`;
 }

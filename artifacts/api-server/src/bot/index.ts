@@ -36,7 +36,7 @@ import {
 } from "./auth";
 import {
   getLogChannel, setLogChannel, initLogTopics, resetAndRecreateTopics,
-  logGeneral, logMod, logSecurity, logFilter, logCaptcha,
+  logGeneral, logMod, logSecurity, logFilter, logCaptcha, logSettings,
 } from "./logging";
 import { startScheduler } from "./scheduler";
 import { checkFlood, resetFlood } from "./flood";
@@ -45,7 +45,7 @@ import {
   approveUser, unapproveUser, isApproved,
   listApproved, unapproveAll,
 } from "./approvals";
-import { parseDuration, parseUserId, formatDuration, escapeHtml } from "./utils";
+import { parseDuration, parseUserId, formatDuration, escapeHtml, fmtAdmin, fmtGroupCtx, fmtGroupById, fmtUser } from "./utils";
 import { db, warningsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 
@@ -54,6 +54,8 @@ if (!token) throw new Error("TELEGRAM_BOT_TOKEN environment variable is required
 
 export const bot: Bot = new Bot(token);
 bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 10 }));
+
+let botUsername = "haarish_helpbot";
 
 // ── Pending /edit sessions: superAdminId → {chatId, messageId, currentText} ──
 const pendingEdits = new Map<number, { chatId: number; messageId: number; currentText: string }>();
@@ -334,7 +336,7 @@ bot.command("start", async (ctx) => {
     } else {
       // Regular user in PM
       await ctx.reply(
-        "👋 Hi! I'm <b>@noobeibot</b> — a group management bot.\n\nAdd me to your group as an admin and authorize the group with a token from a Super Admin to get started.",
+        `👋 Hi! I'm <b>@${botUsername}</b> — a group management bot.\n\nAdd me to your group as an admin and authorize the group with a token from a Super Admin to get started.`,
         { parse_mode: "HTML" },
       );
     }
@@ -385,7 +387,7 @@ bot.on("message:text", async (ctx, next) => {
     // Non-super-admin in PM gets the info message (unless they're awaiting captcha)
     if (!(await isSuperAdmin(fromId))) {
       await ctx.reply(
-        "👋 I'm <b>@noobeibot</b> — a group management bot.\n\nAdd me to your group as an admin and authorize it with a token to use me.",
+        `👋 I'm <b>@${botUsername}</b> — a group management bot.\n\nAdd me to your group as an admin and authorize it with a token to use me.`,
         { parse_mode: "HTML" },
       );
       return;
@@ -618,7 +620,7 @@ bot.command("ban", async (ctx) => {
   try {
     await banUser(ctx, ctx.chat!.id, target.id, durationSec);
     await ctx.reply(`🚫 ${userLink(target.id, target.name)} has been <b>banned</b> for <b>${formatDuration(durationSec)}</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `⛔ <b>Ban:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code> — ${formatDuration(durationSec)}`);
+    await logMod(ctx.api, `⛔ <b>Ban:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)} — ${formatDuration(durationSec)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not ban: ${err?.description || err?.message}`); }
 });
 
@@ -632,7 +634,7 @@ bot.command("unban", async (ctx) => {
   try {
     await unbanUser(ctx, ctx.chat!.id, target.id);
     await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>unbanned</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `✅ <b>Unban:</b> ${userLink(target.id, target.name)} in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `✅ <b>Unban:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not unban: ${err?.description || err?.message}`); }
 });
 
@@ -648,7 +650,7 @@ bot.command("kick", async (ctx) => {
     await ctx.api.banChatMember(ctx.chat!.id, target.id);
     await ctx.api.unbanChatMember(ctx.chat!.id, target.id);
     await ctx.reply(`👢 ${userLink(target.id, target.name)} has been <b>kicked</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `👢 <b>Kick:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) from <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `👢 <b>Kick:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) from <code>${ctx.chat!.id}</code> by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not kick: ${err?.description || err?.message}`); }
 });
 
@@ -671,7 +673,7 @@ bot.command("promote", async (ctx) => {
       is_anonymous: false,
     });
     await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>promoted to admin</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `👑 <b>Promoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `👑 <b>Promoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not promote: ${err?.description || err?.message}`); }
 });
 
@@ -693,7 +695,7 @@ bot.command("demote", async (ctx) => {
       is_anonymous: false,
     });
     await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>demoted</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `⬇️ <b>Demoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `⬇️ <b>Demoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not demote: ${err?.description || err?.message}`); }
 });
 
@@ -711,7 +713,7 @@ bot.command("mute", async (ctx) => {
   try {
     await muteUser(ctx, ctx.chat!.id, target.id, durationSec);
     await ctx.reply(`🔇 ${userLink(target.id, target.name)} has been <b>muted</b> for <b>${formatDuration(durationSec)}</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `🔇 <b>Mute:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code> — ${formatDuration(durationSec)}`);
+    await logMod(ctx.api, `🔇 <b>Mute:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)} — ${formatDuration(durationSec)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not mute: ${err?.description || err?.message}`); }
 });
 
@@ -725,7 +727,7 @@ bot.command("unmute", async (ctx) => {
   try {
     await unmuteUser(ctx, ctx.chat!.id, target.id);
     await ctx.reply(`🔈 ${userLink(target.id, target.name)} can now speak again.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `🔈 <b>Unmute:</b> ${userLink(target.id, target.name)} in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `🔈 <b>Unmute:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not unmute: ${err?.description || err?.message}`); }
 });
 
@@ -743,10 +745,10 @@ bot.command("warn", async (ctx) => {
     const action = await applyAutoActionIfNeeded(ctx, ctx.chat!.id, target.id, count);
     const extra = action ? ` Auto-action: <b>${action}</b>.` : "";
     await ctx.reply(`⚠️ ${link} has reached the warn limit! (<b>${count}/${settings.warnLimit}</b>)${extra}`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `⚠️ <b>Warn limit:</b> ${link} (${count}/${settings.warnLimit}) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>${action ? ` → ${action}` : ""}`);
+    await logMod(ctx.api, `⚠️ <b>Warn limit:</b> ${link} (${count}/${settings.warnLimit}) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}${action ? ` → ${action}` : ""}`);
   } else {
     await ctx.reply(`⚠️ ${link}, you have been warned — <b>${count}/${settings.warnLimit}</b>.`, { parse_mode: "HTML" });
-    await logMod(ctx.api, `⚠️ <b>Warn:</b> ${link} (${count}/${settings.warnLimit}) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+    await logMod(ctx.api, `⚠️ <b>Warn:</b> ${link} (${count}/${settings.warnLimit}) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   }
 });
 
@@ -806,6 +808,7 @@ bot.command("warnsetting", async (ctx) => {
   }
   await updateGroupSettings(ctx.chat!.id, { warnLimit: limit, warnDurationSec: dur, warnAction: action });
   await ctx.reply(`✅ Warn settings: limit=${limit}, duration=${formatDuration(dur)}, action=${action}`);
+  await logSettings(ctx.api, `⚠️ <b>Warn settings updated</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}: limit=${limit}, duration=${formatDuration(dur)}, action=${action}`);
 });
 
 // ── /flood ────────────────────────────────────────────────────────────────────
@@ -826,6 +829,7 @@ bot.command("flood", async (ctx) => {
   if (args[0]!.toLowerCase() === "off") {
     await updateGroupSettings(ctx.chat!.id, { floodEnabled: false });
     await ctx.reply("✅ Flood control disabled.");
+    await logSettings(ctx.api, `🌊 <b>Flood control disabled</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
     return;
   }
 
@@ -950,6 +954,7 @@ bot.command("lock", async (ctx) => {
   if (!type || !LOCK_TYPES.includes(type)) { await ctx.reply(`Usage: /lock [type]\nTypes: ${LOCK_TYPES.join(", ")}`); return; }
   await addLock(ctx.chat!.id, type);
   await ctx.reply(`🔒 <b>${type}</b> locked.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🔒 <b>Lock added:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("unlock", async (ctx) => {
@@ -958,6 +963,7 @@ bot.command("unlock", async (ctx) => {
   const type = args[0]?.toLowerCase() as LockType | undefined;
   if (!type || !LOCK_TYPES.includes(type)) { await ctx.reply(`Usage: /unlock [type]\nTypes: ${LOCK_TYPES.join(", ")}`); return; }
   const ok = await removeLock(ctx.chat!.id, type);
+  if (ok) await logSettings(ctx.api, `🔓 <b>Lock removed:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   await ctx.reply(ok ? `🔓 <b>${type}</b> unlocked.` : `<b>${type}</b> was not locked.`, { parse_mode: "HTML" });
 });
 
@@ -1042,6 +1048,7 @@ bot.command("blsetting", async (ctx) => {
   }
   await updateGroupSettings(ctx.chat!.id, { blacklistThreshold: threshold, blacklistDurationSec: dur, blacklistAction: action });
   await ctx.reply(`✅ Blacklist settings: threshold=${threshold}, duration=${formatDuration(dur)}, action=${action}`);
+  await logSettings(ctx.api, `🚫 <b>Blacklist settings updated</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}: threshold=${threshold}, duration=${formatDuration(dur)}, action=${action}`);
 });
 
 // ── Notes ─────────────────────────────────────────────────────────────────────
@@ -1086,6 +1093,7 @@ bot.command("setwelcome", async (ctx) => {
     return;
   }
   await updateGroupSettings(ctx.chat!.id, { welcomeEnabled: true, welcomeMessage: rest });
+  await logSettings(ctx.api, `👋 <b>Welcome message set</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   await ctx.reply(`✅ Welcome message set and enabled!\n\n<b>Preview:</b>\n${rest.replace(/\{name\}/gi, "John").replace(/\{username\}/gi, "@john").replace(/\{id\}/gi, "123456").replace(/\{group\}/gi, ctx.chat?.title || "Group")}`, { parse_mode: "HTML" });
 });
 
@@ -1093,6 +1101,7 @@ bot.command("resetwelcome", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
   await updateGroupSettings(ctx.chat!.id, { welcomeEnabled: false, welcomeMessage: null });
   await ctx.reply("✅ Welcome message disabled and reset.");
+  await logSettings(ctx.api, `👋 <b>Welcome message disabled</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("welcome", async (ctx) => {
@@ -1114,7 +1123,7 @@ bot.command("approve", async (ctx) => {
   if (!target) { await ctx.reply("Usage: /approve — reply to a user, or /approve [userid]"); return; }
   await approveUser(ctx.chat!.id, target.id, ctx.from!.id);
   await ctx.reply(`✅ ${userLink(target.id, target.name)} is now <b>approved</b>. Locks, blacklist, and antiflood won't apply to them.`, { parse_mode: "HTML" });
-  await logMod(ctx.api, `✅ <b>Approved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+  await logMod(ctx.api, `✅ <b>Approved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("unapprove", async (ctx) => {
@@ -1125,7 +1134,7 @@ bot.command("unapprove", async (ctx) => {
   await ctx.reply(ok
     ? `✅ ${userLink(target.id, target.name)} is now <b>unapproved</b>. Normal rules apply again.`
     : `❌ ${userLink(target.id, target.name)} was not approved.`, { parse_mode: "HTML" });
-  if (ok) await logMod(ctx.api, `❌ <b>Unapproved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+  if (ok) await logMod(ctx.api, `❌ <b>Unapproved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("approval", async (ctx) => {
@@ -1159,7 +1168,7 @@ bot.command("unapproveall", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
   const count = await unapproveAll(ctx.chat!.id);
   await ctx.reply(`✅ Removed approval from <b>${count}</b> user(s). All users are now subject to normal rules.`, { parse_mode: "HTML" });
-  await logMod(ctx.api, `🗑️ <b>Unapprove all:</b> ${count} users cleared in <code>${ctx.chat!.id}</code> by <code>${ctx.from!.id}</code>`);
+  await logMod(ctx.api, `🗑️ <b>Unapprove all:</b> ${count} users cleared in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 // ── Captcha / Antibot / Antichannel ───────────────────────────────────────────
@@ -1190,6 +1199,7 @@ bot.command("captcha", async (ctx) => {
   await updateGroupSettings(ctx.chat!.id, patch);
   const finalType = type === "math" || type === "button" ? type : s.captchaType;
   await ctx.reply(`✅ Captcha ${enabled ? `enabled (type: <b>${finalType}</b>)` : "disabled"}.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🤖 <b>Captcha:</b> ${enabled ? `enabled (${finalType})` : "disabled"} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("antibot", async (ctx) => {
@@ -1203,6 +1213,7 @@ bot.command("antibot", async (ctx) => {
   }
   await updateGroupSettings(ctx.chat!.id, { antibot: arg === "y" });
   await ctx.reply(`✅ Antibot ${arg === "y" ? "enabled — bots that join will be kicked automatically" : "disabled"}.`);
+  await logSettings(ctx.api, `🤖 <b>Antibot:</b> ${arg === "y" ? "enabled" : "disabled"} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("antichannel", async (ctx) => {
@@ -1216,6 +1227,7 @@ bot.command("antichannel", async (ctx) => {
   }
   await updateGroupSettings(ctx.chat!.id, { antichannel: arg === "y" });
   await ctx.reply(`✅ Antichannel ${arg === "y" ? "enabled — channel-posted messages will be removed" : "disabled"}.`);
+  await logSettings(ctx.api, `📛 <b>Antichannel:</b> ${arg === "y" ? "enabled" : "disabled"} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 // ── /help ─────────────────────────────────────────────────────────────────────
@@ -1236,7 +1248,7 @@ bot.command("help", async (ctx) => {
   } else {
     const isAdmin = await senderIsGroupAdmin(ctx);
     await ctx.reply(
-      `🤖 <b>@noobeibot Commands</b>\n\n` +
+      `🤖 <b>@${botUsername} Commands</b>\n\n` +
       (isAdmin ? (
         `<b>👮 Moderation</b>\n` +
         `/ban [time] — Ban user\n/unban — Unban user\n/kick — Kick user\n/promote — Promote to admin\n/demote — Demote admin\n` +
@@ -1270,7 +1282,7 @@ bot.command("addsuper", async (ctx) => {
   if (!id) { await ctx.reply("Usage: /addsuper [userId]"); return; }
   await addSuperAdmin(id);
   await ctx.reply(`✅ <code>${id}</code> is now a Super Admin.`, { parse_mode: "HTML" });
-  await logGeneral(ctx.api, `👑 <b>New Super Admin:</b> <code>${id}</code> added by <code>${ctx.from!.id}</code>`);
+  await logGeneral(ctx.api, `👑 <b>New Super Admin:</b> <code>${id}</code> added by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("rmsuper", async (ctx) => {
@@ -1281,7 +1293,7 @@ bot.command("rmsuper", async (ctx) => {
   if (isHardcodedSuper(id)) { await ctx.reply("❌ Cannot remove a hardcoded Super Admin."); return; }
   await removeSuperAdmin(id);
   await ctx.reply(`✅ <code>${id}</code> removed from Super Admins.`, { parse_mode: "HTML" });
-  await logGeneral(ctx.api, `👑 <b>Super Admin removed:</b> <code>${id}</code> by <code>${ctx.from!.id}</code>`);
+  await logGeneral(ctx.api, `👑 <b>Super Admin removed:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("groups", async (ctx) => {
@@ -1311,7 +1323,7 @@ bot.command("gban", async (ctx) => {
     } catch {}
   }
   await ctx.reply(`🌍 <code>${id}</code> globally banned for <b>${formatDuration(durationSec)}</b>. Applied in ${count} group(s).`, { parse_mode: "HTML" });
-  await logSecurity(ctx.api, `🌍 <b>Global ban:</b> <code>${id}</code> (${formatDuration(durationSec)}) by <code>${ctx.from!.id}</code>, applied to ${count} groups`);
+  await logSecurity(ctx.api, `🌍 <b>Global ban:</b> <code>${id}</code> (${formatDuration(durationSec)}) by ${fmtAdmin(ctx)}, applied to ${count} groups`);
 });
 
 bot.command("resetrestriction", async (ctx) => {
@@ -1356,7 +1368,7 @@ bot.command("destroy", async (ctx) => {
   await setGroupBanned(gid, true);
   await deauthorizeGroup(gid);
   await ctx.reply(`💥 Group <code>${gid}</code> destroyed. Renamed, banned ${banned} admins, marked banned.`, { parse_mode: "HTML" });
-  await logGeneral(ctx.api, `💥 <b>Destroy:</b> group <code>${gid}</code> by <code>${ctx.from!.id}</code> — banned ${banned} admins`);
+  await logGeneral(ctx.api, `💥 <b>Destroy:</b> group <code>${gid}</code> by ${fmtAdmin(ctx)} — banned ${banned} admins`);
 });
 
 bot.command("bangroup", async (ctx) => {
@@ -1370,7 +1382,7 @@ bot.command("bangroup", async (ctx) => {
   try { await ctx.api.sendMessage(gid, "🚫 This group has been banned."); } catch {}
   try { await ctx.api.leaveChat(gid); } catch {}
   await ctx.reply(`✅ Group <code>${gid}</code> banned and left.`, { parse_mode: "HTML" });
-  await logGeneral(ctx.api, `🚫 <b>Group banned:</b> <code>${gid}</code> by <code>${ctx.from!.id}</code>`);
+  await logGeneral(ctx.api, `🚫 <b>Group banned:</b> <code>${gid}</code> by ${fmtAdmin(ctx)}`);
 });
 
 bot.command("unbangroup", async (ctx) => {
@@ -1380,7 +1392,7 @@ bot.command("unbangroup", async (ctx) => {
   if (!gid) { await ctx.reply("Usage: /unbangroup [groupId]"); return; }
   await setGroupBanned(gid, false);
   await ctx.reply(`✅ Group <code>${gid}</code> unbanned. Add bot back + /redeem to reauthorize.`, { parse_mode: "HTML" });
-  await logGeneral(ctx.api, `✅ <b>Group unbanned:</b> <code>${gid}</code> by <code>${ctx.from!.id}</code>`);
+  await logGeneral(ctx.api, `✅ <b>Group unbanned:</b> <code>${gid}</code> by ${fmtAdmin(ctx)}`);
 });
 
 // ── /resync ───────────────────────────────────────────────────────────────────
@@ -1646,6 +1658,7 @@ export async function startBot(): Promise<void> {
   void bot.start({
     allowed_updates: ["message", "edited_message", "callback_query", "chat_member", "my_chat_member"],
     onStart: (info) => {
+      botUsername = info.username;
       logger.info({ username: info.username, hardcodedSupers: HARDCODED_SUPER_ADMINS }, "Telegram bot started");
     },
   });
