@@ -120,6 +120,37 @@ async function resolveTarget(ctx: any, args: string[]): Promise<{ id: number; na
   return null;
 }
 
+/**
+ * Resolves target + optional duration from command args.
+ * Format: /cmd [id] [time]  — or reply to user: /cmd [time]
+ * If replying, args[0] is treated as optional duration.
+ * If not replying, args[0] is the target ID and args[1] is optional duration.
+ */
+async function resolveTargetAndDuration(ctx: any, args: string[]): Promise<{ target: { id: number; name: string } | null; durationSec: number }> {
+  const reply = ctx.message?.reply_to_message;
+  if (reply?.from) {
+    const u = reply.from;
+    const name = [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || String(u.id);
+    const durationSec = args.length > 0 ? (parseDuration(args[0]) ?? 0) : 0;
+    return { target: { id: u.id, name }, durationSec };
+  }
+  const entities = ctx.message?.entities || [];
+  for (const e of entities) {
+    if (e.type === "text_mention" && e.user) {
+      const u = e.user;
+      const name = [u.first_name, u.last_name].filter(Boolean).join(" ") || String(u.id);
+      const durationSec = args.length > 0 ? (parseDuration(args[0]) ?? 0) : 0;
+      return { target: { id: u.id, name }, durationSec };
+    }
+  }
+  if (args.length === 0) return { target: null, durationSec: 0 };
+  const id = parseUserId(args[0]);
+  if (id === null) return { target: null, durationSec: 0 };
+  const name = ctx.chat?.id ? await getMemberName(ctx.api, ctx.chat.id, id) : String(id);
+  const durationSec = args.length > 1 ? (parseDuration(args[1]) ?? 0) : 0;
+  return { target: { id, name }, durationSec };
+}
+
 async function senderIsGroupAdmin(ctx: any): Promise<boolean> {
   const userId = ctx.from?.id;
   if (!userId) return false;
@@ -621,7 +652,7 @@ bot.command("redeem", async (ctx) => {
 
   await ctx.deleteMessage().catch(() => {});
 
-  const result = await consumeAuthKey(args[0]!);
+  const result = await consumeAuthKey(args[0]!, chat.id);
   if (!result.ok) {
     const m = await ctx.reply(`❌ ${result.reason}`);
     setTimeout(() => ctx.api.deleteMessage(chat.id, m.message_id).catch(() => {}), 8000);
@@ -648,10 +679,8 @@ bot.command("ban", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
   if (!(await requireBotCan(ctx, "can_restrict_members"))) return;
   const args = splitArgs(ctx.message?.text);
-  let durationSec = 0, targetArgs = args;
-  if (args.length >= 1) { const d = parseDuration(args[0]); if (d !== null) { durationSec = d; targetArgs = args.slice(1); } }
-  const target = await resolveTarget(ctx, targetArgs);
-  if (!target) { await ctx.reply("Usage: /ban [duration] — reply to user, or /ban [duration] [userid]"); return; }
+  const { target, durationSec } = await resolveTargetAndDuration(ctx, args);
+  if (!target) { await ctx.reply("Usage: /ban [id] [time] — or reply to user: /ban [time]\nExamples: /ban 123456789 1d  •  /ban 7d  (when replying)  •  /ban  (permanent, replying)"); return; }
   if (await isSuperAdmin(target.id)) { await ctx.reply("❌ Cannot ban a Super Admin."); return; }
   try {
     await banUser(ctx, ctx.chat!.id, target.id, durationSec);
@@ -743,10 +772,8 @@ bot.command("mute", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
   if (!(await requireBotCan(ctx, "can_restrict_members"))) return;
   const args = splitArgs(ctx.message?.text);
-  let durationSec = 0, targetArgs = args;
-  if (args.length >= 1) { const d = parseDuration(args[0]); if (d !== null) { durationSec = d; targetArgs = args.slice(1); } }
-  const target = await resolveTarget(ctx, targetArgs);
-  if (!target) { await ctx.reply("Usage: /mute [duration] — reply to user, or /mute [duration] [userid]"); return; }
+  const { target, durationSec } = await resolveTargetAndDuration(ctx, args);
+  if (!target) { await ctx.reply("Usage: /mute [id] [time] — or reply to user: /mute [time]\nExamples: /mute 123456789 1h  •  /mute 10m  (when replying)  •  /mute  (permanent, replying)"); return; }
   if (await isSuperAdmin(target.id)) { await ctx.reply("❌ Cannot mute a Super Admin."); return; }
   try {
     await muteUser(ctx, ctx.chat!.id, target.id, durationSec);
@@ -836,19 +863,19 @@ bot.command("warnsetting", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const s = await getGroupSettings(ctx.chat!.id);
-  if (args.length < 3) {
-    await ctx.reply(`⚙️ <b>Warn Settings</b>\nLimit: ${s.warnLimit} | Duration: ${formatDuration(s.warnDurationSec)} | Action: ${s.warnAction}\n\nUsage: /warnsetting [limit] [duration] [mute|ban]\nExample: /warnsetting 3 24h mute`, { parse_mode: "HTML" });
+  if (args.length < 2) {
+    await ctx.reply(`⚙️ <b>Warn Settings</b>\nLimit: ${s.warnLimit} | Action: ${s.warnAction} | Duration: ${formatDuration(s.warnDurationSec)}\n\nUsage: /warnsetting [limit] [mute|ban|kick] [time]\nTime is optional — omit for permanent\nExample: /warnsetting 3 mute 24h`, { parse_mode: "HTML" });
     return;
   }
   const limit = parseInt(args[0]!, 10);
-  const dur = parseDuration(args[1]);
-  const action = args[2]!.toLowerCase();
-  if (Number.isNaN(limit) || limit < 1 || dur === null || (action !== "mute" && action !== "ban")) {
-    await ctx.reply("❌ Invalid. Example: /warnsetting 3 24h mute"); return;
+  const action = args[1]!.toLowerCase();
+  const dur = args[2] ? (parseDuration(args[2]) ?? 0) : 0;
+  if (Number.isNaN(limit) || limit < 1 || (action !== "mute" && action !== "ban" && action !== "kick")) {
+    await ctx.reply("❌ Invalid. Example: /warnsetting 3 mute 24h"); return;
   }
-  await updateGroupSettings(ctx.chat!.id, { warnLimit: limit, warnDurationSec: dur, warnAction: action });
-  await ctx.reply(`✅ Warn settings: limit=${limit}, duration=${formatDuration(dur)}, action=${action}`);
-  await logSettings(ctx.api, `⚠️ <b>Warn settings updated</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}: limit=${limit}, duration=${formatDuration(dur)}, action=${action}`);
+  await updateGroupSettings(ctx.chat!.id, { warnLimit: limit, warnAction: action, warnDurationSec: dur });
+  await ctx.reply(`✅ Warn settings: limit=${limit}, action=${action}, duration=${formatDuration(dur)}`);
+  await logSettings(ctx.api, `⚠️ <b>Warn settings updated</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}: limit=${limit}, action=${action}, duration=${formatDuration(dur)}`);
 });
 
 // ── /flood ────────────────────────────────────────────────────────────────────
@@ -2163,12 +2190,27 @@ bot.command("sync", async (ctx) => {
 // ── /backup ───────────────────────────────────────────────────────────────────
 
 bot.command("backup", async (ctx) => {
+  const chat = ctx.chat;
+  const inGroup = chat?.type === "group" || chat?.type === "supergroup";
+
+  if (inGroup) {
+    if (!(await requireGroupAdmin(ctx))) return;
+    const s = await getGroupSettings(chat!.id);
+    const groups = await listGroups();
+    const group = groups.find((g) => g.groupId === chat!.id);
+    const title = group?.title ?? (("title" in chat!) ? (chat as any).title : "") ?? "";
+    const payload = { version: 1, groupId: chat!.id, title, exportedAt: new Date().toISOString(), settings: s };
+    const json = JSON.stringify(payload, null, 2);
+    await ctx.reply(
+      `📦 <b>Config backup for this group</b>\n\n<pre>${escapeHtml(json)}</pre>\n\nForward this to a super admin and use <code>/restore [json]</code> to restore.`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+
   if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gidArg = parseUserId(args[0]);
-  const chat = ctx.chat;
-  if (!gidArg && chat?.type !== "private") { await ctx.reply("Usage (in PM): /backup [groupId]"); return; }
-
   if (!gidArg) { await ctx.reply("Usage: /backup [groupId]"); return; }
   const s = await getGroupSettings(gidArg);
   const groups = await listGroups();
@@ -2188,7 +2230,15 @@ bot.command("backup", async (ctx) => {
 });
 
 bot.command("restore", async (ctx) => {
-  if (!(await requireSuperAdmin(ctx))) return;
+  const chat = ctx.chat;
+  const inGroup = chat?.type === "group" || chat?.type === "supergroup";
+
+  if (inGroup) {
+    if (!(await requireGroupAdmin(ctx))) return;
+  } else {
+    if (!(await requireSuperAdmin(ctx))) return;
+  }
+
   const text = ctx.message?.text || "";
   const raw = text.replace(/^\/restore(@\w+)?\s*/i, "").trim();
   if (!raw) { await ctx.reply("Usage: /restore [json] — paste the JSON from /backup"); return; }
@@ -2197,6 +2247,12 @@ bot.command("restore", async (ctx) => {
   const gid = payload?.groupId;
   const settings = payload?.settings;
   if (!gid || !settings) { await ctx.reply("❌ Invalid backup format. Missing groupId or settings."); return; }
+
+  if (inGroup && Number(gid) !== chat!.id) {
+    await ctx.reply("❌ You can only restore settings for the current group.");
+    return;
+  }
+
   const { groupId: _gid, ...patch } = settings;
   try {
     await updateGroupSettings(Number(gid), patch);

@@ -448,6 +448,26 @@ function Dashboard({ api }: { api: ReturnType<typeof useApi> }) {
 
 // ── Groups ────────────────────────────────────────────────────────────────────
 
+const SEL_CLS = "w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+
+function SettingsRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1 min-h-[32px]">
+      <span className="text-xs text-muted-foreground flex-shrink-0">{label}</span>
+      <div className="flex-shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2 pt-1">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 function GroupSettings({ draft, onChange }: { draft: Record<string, unknown>; onChange: (d: Record<string, unknown>) => void }) {
   const set = (k: string, v: unknown) => onChange({ ...draft, [k]: v });
   const num = (k: string, def: number) => Number(draft[k] ?? def);
@@ -455,70 +475,137 @@ function GroupSettings({ draft, onChange }: { draft: Record<string, unknown>; on
   const str = (k: string, def: string) => String(draft[k] ?? def);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Warnings</p>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Limit</span>
-          <Input type="number" min={1} max={20} className="!w-20 !py-1 !text-xs" value={num("warnLimit", 3)} onChange={e => set("warnLimit", parseInt(e.target.value) || 3)} />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Action</span>
-          <select className="bg-input border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={str("warnAction", "mute")} onChange={e => set("warnAction", e.target.value)}>
-            <option value="mute">Mute</option><option value="ban">Ban</option>
-          </select>
-        </label>
+    <div className="divide-y divide-border/50 text-sm">
+
+      {/* Warnings */}
+      <div className="pb-4 mb-4">
+        <SettingsSection title="⚠️ Warnings">
+          <SettingsRow label="Warn limit">
+            <Input type="number" min={1} max={20} className="!w-20 !py-1 !text-xs" value={num("warnLimit", 3)} onChange={e => set("warnLimit", parseInt(e.target.value) || 3)} />
+          </SettingsRow>
+          <SettingsRow label="Auto-action">
+            <select className={SEL_CLS + " !w-28"} value={str("warnAction", "mute")} onChange={e => set("warnAction", e.target.value)}>
+              <option value="mute">Mute</option>
+              <option value="ban">Ban</option>
+              <option value="kick">Kick</option>
+            </select>
+          </SettingsRow>
+          <SettingsRow label="Duration (sec, 0=perm)">
+            <Input type="number" min={0} className="!w-24 !py-1 !text-xs" value={num("warnDurationSec", 0)} onChange={e => set("warnDurationSec", parseInt(e.target.value) || 0)} />
+          </SettingsRow>
+        </SettingsSection>
       </div>
 
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Flood Control</p>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Enabled</span>
-          <input type="checkbox" checked={bool("floodEnabled")} onChange={e => set("floodEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Message limit</span>
-          <Input type="number" min={2} max={50} className="!w-20 !py-1 !text-xs" value={num("floodLimit", 5)} onChange={e => set("floodLimit", parseInt(e.target.value) || 5)} />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Window (sec)</span>
-          <Input type="number" min={1} max={60} className="!w-20 !py-1 !text-xs" value={num("floodWindowSec", 5)} onChange={e => set("floodWindowSec", parseInt(e.target.value) || 5)} />
-        </label>
+      {/* Flood Control */}
+      <div className="py-4 mb-4">
+        <SettingsSection title="🌊 Flood Control">
+          <SettingsRow label="Enabled">
+            <input type="checkbox" checked={bool("floodEnabled")} onChange={e => set("floodEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+          <SettingsRow label="Message limit">
+            <Input type="number" min={2} max={50} className="!w-20 !py-1 !text-xs" value={num("floodLimit", 5)} onChange={e => set("floodLimit", parseInt(e.target.value) || 5)} />
+          </SettingsRow>
+          <SettingsRow label="Window (sec)">
+            <Input type="number" min={1} max={60} className="!w-20 !py-1 !text-xs" value={num("floodWindowSec", 5)} onChange={e => set("floodWindowSec", parseInt(e.target.value) || 5)} />
+          </SettingsRow>
+          <SettingsRow label="Action">
+            <select className={SEL_CLS + " !w-28"} value={str("floodAction", "mute")} onChange={e => set("floodAction", e.target.value)}>
+              <option value="mute">Mute</option>
+              <option value="ban">Ban</option>
+              <option value="kick">Kick</option>
+            </select>
+          </SettingsRow>
+          <SettingsRow label="Action duration (sec)">
+            <Input type="number" min={0} className="!w-24 !py-1 !text-xs" value={num("floodActionDurationSec", 300)} onChange={e => set("floodActionDurationSec", parseInt(e.target.value) || 0)} />
+          </SettingsRow>
+        </SettingsSection>
       </div>
 
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Protection</p>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Captcha on join</span>
-          <input type="checkbox" checked={bool("captchaEnabled")} onChange={e => set("captchaEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Anti-bot</span>
-          <input type="checkbox" checked={bool("antibot")} onChange={e => set("antibot", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Anti-channel</span>
-          <input type="checkbox" checked={bool("antichannel")} onChange={e => set("antichannel", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
-        </label>
+      {/* Welcome Message */}
+      <div className="py-4 mb-4">
+        <SettingsSection title="👋 Welcome Message">
+          <SettingsRow label="Enabled">
+            <input type="checkbox" checked={bool("welcomeEnabled")} onChange={e => set("welcomeEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+          <div className="mt-2 space-y-1.5">
+            <p className="text-xs text-muted-foreground">Message — HTML ok · placeholders: <code className="bg-muted px-1 rounded text-[10px]">{"{name}"}</code> <code className="bg-muted px-1 rounded text-[10px]">{"{group}"}</code> <code className="bg-muted px-1 rounded text-[10px]">{"{id}"}</code></p>
+            <textarea
+              value={str("welcomeMessage", "")}
+              onChange={e => set("welcomeMessage", e.target.value)}
+              rows={3}
+              placeholder="Welcome, {name}! Please read the rules."
+              className="w-full bg-input border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y transition-shadow"
+            />
+          </div>
+        </SettingsSection>
       </div>
 
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Blacklist</p>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Hit threshold</span>
-          <Input type="number" min={1} max={10} className="!w-20 !py-1 !text-xs" value={num("blacklistThreshold", 3)} onChange={e => set("blacklistThreshold", parseInt(e.target.value) || 3)} />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Global BL sync</span>
-          <input type="checkbox" checked={bool("globalBlacklistEnabled")} onChange={e => set("globalBlacklistEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
-        </label>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground text-xs">Action</span>
-          <select className="bg-input border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={str("blacklistAction", "mute")} onChange={e => set("blacklistAction", e.target.value)}>
-            <option value="mute">Mute</option><option value="ban">Ban</option><option value="kick">Kick</option>
-          </select>
-        </label>
+      {/* Protection */}
+      <div className="py-4 mb-4">
+        <SettingsSection title="🛡️ Protection">
+          <SettingsRow label="Captcha on join">
+            <input type="checkbox" checked={bool("captchaEnabled")} onChange={e => set("captchaEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+          <SettingsRow label="Captcha type">
+            <select className={SEL_CLS + " !w-28"} value={str("captchaType", "button")} onChange={e => set("captchaType", e.target.value)}>
+              <option value="button">Button click</option>
+              <option value="math">Math problem</option>
+            </select>
+          </SettingsRow>
+          <SettingsRow label="Captcha timeout (sec)">
+            <Input type="number" min={30} max={600} className="!w-20 !py-1 !text-xs" value={num("captchaTimeoutSec", 120)} onChange={e => set("captchaTimeoutSec", parseInt(e.target.value) || 120)} />
+          </SettingsRow>
+          <SettingsRow label="Anti-bot (kick bots)">
+            <input type="checkbox" checked={bool("antibot")} onChange={e => set("antibot", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+          <SettingsRow label="Anti-channel (remove ch. posts)">
+            <input type="checkbox" checked={bool("antichannel")} onChange={e => set("antichannel", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+        </SettingsSection>
       </div>
+
+      {/* Blacklist */}
+      <div className="py-4 mb-4">
+        <SettingsSection title="🚫 Blacklist">
+          <SettingsRow label="Hit threshold">
+            <Input type="number" min={1} max={10} className="!w-20 !py-1 !text-xs" value={num("blacklistThreshold", 3)} onChange={e => set("blacklistThreshold", parseInt(e.target.value) || 3)} />
+          </SettingsRow>
+          <SettingsRow label="Action">
+            <select className={SEL_CLS + " !w-28"} value={str("blacklistAction", "mute")} onChange={e => set("blacklistAction", e.target.value)}>
+              <option value="mute">Mute</option>
+              <option value="ban">Ban</option>
+              <option value="kick">Kick</option>
+            </select>
+          </SettingsRow>
+          <SettingsRow label="Duration (sec, 0=perm)">
+            <Input type="number" min={0} className="!w-24 !py-1 !text-xs" value={num("blacklistDurationSec", 0)} onChange={e => set("blacklistDurationSec", parseInt(e.target.value) || 0)} />
+          </SettingsRow>
+          <SettingsRow label="Global BL sync">
+            <input type="checkbox" checked={bool("globalBlacklistEnabled")} onChange={e => set("globalBlacklistEnabled", e.target.checked)} className="w-4 h-4 rounded accent-blue-500" />
+          </SettingsRow>
+        </SettingsSection>
+      </div>
+
+      {/* Lock Violations */}
+      <div className="pt-4">
+        <SettingsSection title="🔒 Lock Violations">
+          <SettingsRow label="Action on violation">
+            <select className={SEL_CLS + " !w-36"} value={str("lockAction", "none")} onChange={e => set("lockAction", e.target.value)}>
+              <option value="none">None (delete only)</option>
+              <option value="mute">Mute</option>
+              <option value="ban">Ban</option>
+              <option value="kick">Kick</option>
+            </select>
+          </SettingsRow>
+          <SettingsRow label="After N violations">
+            <Input type="number" min={1} max={10} className="!w-20 !py-1 !text-xs" value={num("lockActionLimit", 3)} onChange={e => set("lockActionLimit", parseInt(e.target.value) || 3)} />
+          </SettingsRow>
+          <SettingsRow label="Punishment (sec, 0=perm)">
+            <Input type="number" min={0} className="!w-24 !py-1 !text-xs" value={num("lockActionDurationSec", 0)} onChange={e => set("lockActionDurationSec", parseInt(e.target.value) || 0)} />
+          </SettingsRow>
+        </SettingsSection>
+      </div>
+
     </div>
   );
 }
@@ -618,22 +705,24 @@ function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
           <div className="space-y-2">
             {filtered.map(g => (
               <div key={g.groupId} className={`bg-card border rounded-xl overflow-hidden ${g.banned ? "border-red-500/30" : "border-border"}`}>
-                <div className="flex items-center gap-3 p-4">
-                  <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center text-sm flex-shrink-0">🏢</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                      <span className="font-medium text-sm text-foreground truncate max-w-[140px] sm:max-w-none">{g.title || "Unnamed Group"}</span>
-                      {g.banned && <Badge color="red">Banned</Badge>}
-                      {keyBadge(g)}
+                <div className="p-4 space-y-2.5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center text-sm flex-shrink-0">🏢</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        <span className="font-medium text-sm text-foreground truncate max-w-[180px] sm:max-w-none">{g.title || "Unnamed Group"}</span>
+                        {g.banned && <Badge color="red">Banned</Badge>}
+                        {keyBadge(g)}
+                      </div>
+                      <p className="text-xs text-muted-foreground font-mono select-all">{g.groupId}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono select-all">{g.groupId}</p>
                   </div>
-                  <div className="flex gap-1.5 flex-shrink-0 flex-wrap justify-end">
+                  <div className="flex gap-1.5 flex-wrap">
                     <Btn size="sm" variant="ghost" onClick={() => { setEditing(editing === g.groupId ? null : g.groupId); setDraft(g.settings || {}); }}>
-                      {editing === g.groupId ? "↑" : "Settings"}
+                      {editing === g.groupId ? "▲ Close" : "⚙️ Settings"}
                     </Btn>
                     <Btn size="sm" variant={g.banned ? "ghost" : "danger"} onClick={() => toggleBan(g)}>
-                      {g.banned ? "Unban" : "Ban"}
+                      {g.banned ? "✅ Unban" : "🚫 Ban"}
                     </Btn>
                     <Btn size="sm" variant="danger" loading={leaving === g.groupId} onClick={() => leaveGroup(g)}>
                       🚪 Leave

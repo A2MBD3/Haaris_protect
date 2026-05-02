@@ -93,6 +93,7 @@ router.put("/groups/:id/settings", async (req, res) => {
 router.post("/groups/:id/ban", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    await deauthorizeGroup(id);
     await setGroupBanned(id, true);
     try { await bot.api.sendMessage(id, "⚠️ This group has been banned from using the bot."); } catch {}
     res.json({ ok: true });
@@ -129,7 +130,8 @@ router.post("/groups/:id/authorize", async (req, res) => {
     const { key } = req.body as { key?: string };
     if (!key?.trim()) { res.status(400).json({ error: "key required" }); return; }
     const result = await consumeAuthKey(key.trim(), id);
-    if (!result) { res.status(400).json({ error: "Invalid, expired, or used-up key" }); return; }
+    if (!result.ok) { res.status(400).json({ error: result.reason || "Invalid, expired, or used-up key" }); return; }
+    await authorizeGroup(id, key.trim(), result.expiresAt ?? null);
     try {
       await bot.api.sendMessage(id, "✅ This group has been authorized by an admin. The bot is now active here.");
     } catch {}

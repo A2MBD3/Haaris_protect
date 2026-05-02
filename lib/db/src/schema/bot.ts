@@ -61,6 +61,16 @@ export const authKeysTable = pgTable("auth_keys", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const groupKeyHistoryTable = pgTable(
+  "group_key_history",
+  {
+    groupId: bigint("group_id", { mode: "number" }).notNull(),
+    key: text("key").notNull(),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.key] })],
+);
+
 export const botConfigTable = pgTable("bot_config", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

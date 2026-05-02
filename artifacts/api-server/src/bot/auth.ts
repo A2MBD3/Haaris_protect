@@ -1,4 +1,4 @@
-import { db, authKeysTable, groupsTable } from "@workspace/db";
+import { db, authKeysTable, groupsTable, groupKeyHistoryTable } from "@workspace/db";
 import { eq, lte, and, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import type { Bot } from "grammy";
@@ -60,10 +60,37 @@ export async function removeAuthKey(key: string): Promise<boolean> {
   return r.length > 0;
 }
 
+// ── Key-per-group history ─────────────────────────────────────────────────────
+
+export async function addGroupKeyHistory(groupId: number, key: string): Promise<void> {
+  await db
+    .insert(groupKeyHistoryTable)
+    .values({ groupId, key: key.toUpperCase() })
+    .onConflictDoNothing();
+}
+
+export async function hasGroupUsedKey(groupId: number, key: string): Promise<boolean> {
+  const rows = await db
+    .select()
+    .from(groupKeyHistoryTable)
+    .where(and(eq(groupKeyHistoryTable.groupId, groupId), eq(groupKeyHistoryTable.key, key.toUpperCase())))
+    .limit(1);
+  return rows.length > 0;
+}
+
+// ── consumeAuthKey ────────────────────────────────────────────────────────────
+
 export async function consumeAuthKey(
   key: string,
+  groupId?: number,
 ): Promise<{ ok: boolean; reason?: string; expiresAt?: Date | null }> {
   const upper = key.trim().toUpperCase();
+
+  if (groupId !== undefined) {
+    const used = await hasGroupUsedKey(groupId, upper);
+    if (used) return { ok: false, reason: "This key has already been used for this group and cannot be reused." };
+  }
+
   const rows = await db
     .select()
     .from(authKeysTable)
@@ -91,7 +118,6 @@ export async function isGroupAuthorized(groupId: number): Promise<boolean> {
   if (rows.length === 0) return false;
   const r = rows[0]!;
   if (!r.authorized) return false;
-  // Check if the group's auth has expired
   if (r.authorizedExpiresAt && r.authorizedExpiresAt.getTime() < Date.now()) {
     await db
       .update(groupsTable)
@@ -118,6 +144,15 @@ export async function authorizeGroup(
 }
 
 export async function deauthorizeGroup(groupId: number): Promise<void> {
+  const rows = await db
+    .select({ authorizedKey: groupsTable.authorizedKey })
+    .from(groupsTable)
+    .where(eq(groupsTable.groupId, groupId))
+    .limit(1);
+  const currentKey = rows[0]?.authorizedKey;
+  if (currentKey) {
+    await addGroupKeyHistory(groupId, currentKey);
+  }
   await db
     .update(groupsTable)
     .set({ authorized: false, authorizedKey: null, authorizedExpiresAt: null })
@@ -143,6 +178,9 @@ export function startAuthExpiryWatcher(bot: Bot): void {
         .limit(50);
 
       for (const g of expired) {
+        if (g.authorizedKey) {
+          await addGroupKeyHistory(Number(g.groupId), g.authorizedKey);
+        }
         await db
           .update(groupsTable)
           .set({ authorized: false })
@@ -162,6 +200,6 @@ export function startAuthExpiryWatcher(bot: Bot): void {
       logger.error({ err }, "Auth expiry watcher error");
     }
   };
-  setInterval(tick, 60_000); // check every minute
+  setInterval(tick, 60_000);
   void tick();
 }
