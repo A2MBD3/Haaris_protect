@@ -18,7 +18,33 @@ interface LogEntry { id: number; ts: number; category: string; text: string; }
 interface FilterItem { word: string; reply: string; }
 interface NoteItem { name: string; content: string; }
 
+interface AppSettings {
+  watermarkText: string;
+  watermarkHandle: string;
+  watermarkLink: string;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  watermarkText: "Bot developer Abdullah Al Mamun",
+  watermarkHandle: "@A2MBD3",
+  watermarkLink: "https://info-abdullah.netlify.app",
+};
+
 type Page = "dashboard" | "groups" | "keys" | "admins" | "security" | "broadcast" | "filters" | "logs";
+
+// ── Settings hook ─────────────────────────────────────────────────────────────
+
+function useSettings() {
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem("admin_settings") || "{}") }; }
+    catch { return { ...DEFAULT_SETTINGS }; }
+  });
+  const save = useCallback((s: AppSettings) => {
+    localStorage.setItem("admin_settings", JSON.stringify(s));
+    setSettings(s);
+  }, []);
+  return { settings, save };
+}
 
 // ── API hook ──────────────────────────────────────────────────────────────────
 
@@ -134,6 +160,99 @@ function SectionHeader({ title, sub, action }: { title: string; sub?: string; ac
   );
 }
 
+// ── Settings Modal ────────────────────────────────────────────────────────────
+
+function SettingsModal({ settings, onSave, onClose, token }: {
+  settings: AppSettings;
+  onSave: (s: AppSettings) => void;
+  onClose: () => void;
+  token: string;
+}) {
+  const [form, setForm] = useState<AppSettings>({ ...settings });
+  const [pwVisible, setPwVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSave = () => { onSave(form); onClose(); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto z-10">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg">⚙️</span>
+            <div>
+              <p className="text-sm font-bold text-foreground">Settings</p>
+              <p className="text-xs text-muted-foreground">Panel & watermark preferences</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl w-8 h-8 flex items-center justify-center rounded-lg hover:bg-accent transition-colors">✕</button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Password section */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">🔐 Admin Password</p>
+            <div className="bg-muted/30 border border-border rounded-xl p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">Your current login password. Share with trusted admins only.</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-input border border-border rounded-lg px-3 py-2 font-mono text-xs text-foreground select-all overflow-hidden">
+                  {pwVisible ? token : "•".repeat(Math.min(token.length, 24))}
+                </div>
+                <button onClick={() => setPwVisible(v => !v)} className="text-xs px-2.5 py-1.5 rounded-lg border border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex-shrink-0">
+                  {pwVisible ? "Hide" : "Show"}
+                </button>
+                <button onClick={copy} className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors flex-shrink-0 ${copied ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent"}`}>
+                  {copied ? "✓ Copied" : "Copy"}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">To change this password, update the bot token. The password is derived from it.</p>
+            </div>
+          </div>
+
+          {/* Watermark section */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">🏷️ Dashboard Watermark</p>
+            <p className="text-xs text-muted-foreground">Shown at the bottom of the dashboard. Click the handle to open the link.</p>
+            <div className="space-y-2.5">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Developer Name</label>
+                <Input placeholder="e.g. Bot developer Abdullah Al Mamun" value={form.watermarkText} onChange={e => setForm(f => ({ ...f, watermarkText: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Handle / Username</label>
+                <Input placeholder="e.g. @A2MBD3" value={form.watermarkHandle} onChange={e => setForm(f => ({ ...f, watermarkHandle: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Profile Link (URL)</label>
+                <Input placeholder="e.g. https://info-abdullah.netlify.app" value={form.watermarkLink} onChange={e => setForm(f => ({ ...f, watermarkLink: e.target.value }))} />
+              </div>
+            </div>
+            {/* Preview */}
+            <div className="bg-muted/20 border border-border/50 rounded-xl p-3 text-center">
+              <p className="text-xs text-muted-foreground mb-1">Preview</p>
+              <p className="text-xs text-muted-foreground">{form.watermarkText || "—"}</p>
+              <a href={form.watermarkLink || "#"} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline font-medium">{form.watermarkHandle || "—"}</a>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
+            <Btn onClick={handleSave} className="flex-1">Save Settings</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Login ─────────────────────────────────────────────────────────────────────
 
 function Login({ onLogin }: { onLogin: (t: string) => void }) {
@@ -208,19 +327,26 @@ const PAGE_LABELS: Record<Page, { icon: string; label: string }> = {
   logs:      { icon: "🪵", label: "Activity Logs" },
 };
 
-function Layout({ page, onPage, onLogout, children }: {
-  page: Page; onPage: (p: Page) => void; onLogout: () => void; children: ReactNode;
+function Layout({ page, onPage, onLogout, onSettings, children }: {
+  page: Page; onPage: (p: Page) => void; onLogout: () => void; onSettings: () => void; children: ReactNode;
 }) {
   const pl = PAGE_LABELS[page];
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar — desktop */}
       <aside className="hidden md:flex flex-col w-56 lg:w-60 bg-card border-r border-border fixed h-full z-40">
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-border">
-          <span className="text-2xl">🤖</span>
-          <div>
-            <p className="text-sm font-semibold text-foreground">Haaris Admin</p>
-            <p className="text-xs text-muted-foreground">Control Panel</p>
+        {/* Logo + Settings icon */}
+        <div className="flex items-center gap-2 px-4 py-4 border-b border-border">
+          <button
+            onClick={onSettings}
+            title="Settings"
+            className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-lg hover:bg-primary/20 transition-colors flex-shrink-0"
+          >
+            ⚙️
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-foreground leading-tight">Haaris Admin</p>
+            <p className="text-[11px] text-muted-foreground leading-tight">Control Panel</p>
           </div>
         </div>
 
@@ -248,33 +374,34 @@ function Layout({ page, onPage, onLogout, children }: {
       {/* Main */}
       <main className="flex-1 md:ml-56 lg:ml-60 min-h-screen flex flex-col">
         {/* Mobile top bar */}
-        <header className="md:hidden sticky top-0 z-30 bg-card/95 backdrop-blur border-b border-border flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <span className="text-lg">{pl.icon}</span>
+        <header className="md:hidden sticky top-0 z-30 bg-card/95 backdrop-blur border-b border-border flex items-center justify-between px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <button onClick={onSettings} title="Settings"
+              className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-base hover:bg-primary/20 transition-colors flex-shrink-0">
+              ⚙️
+            </button>
+            <span className="text-base">{pl.icon}</span>
             <span className="text-sm font-semibold text-foreground">{pl.label}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button onClick={() => onPage("logs")}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors ${page === "logs" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}>
+              className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${page === "logs" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"}`}>
               <span>🪵</span>
-              <span className="hidden xs:inline">Logs</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </button>
-            <button onClick={onLogout} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Sign out</button>
+            <button onClick={onLogout} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Out</button>
           </div>
         </header>
 
         {/* Desktop page header bar */}
-        <div className="hidden md:flex items-center justify-between px-6 py-3.5 border-b border-border/60 bg-card/50 backdrop-blur sticky top-0 z-20">
+        <div className="hidden md:flex items-center justify-between px-6 py-3 border-b border-border/60 bg-card/50 backdrop-blur sticky top-0 z-20">
           <div className="flex items-center gap-2.5">
             <span className="text-base opacity-70">{pl.icon}</span>
             <span className="text-sm font-semibold text-foreground">{pl.label}</span>
           </div>
           <button onClick={() => onPage("logs")}
             className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              page === "logs"
-                ? "bg-primary/15 text-primary border-primary/30 font-semibold"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent border-border"
+              page === "logs" ? "bg-primary/15 text-primary border-primary/30 font-semibold" : "text-muted-foreground hover:text-foreground hover:bg-accent border-border"
             }`}>
             <span>🪵</span>
             <span>Logs</span>
@@ -292,7 +419,7 @@ function Layout({ page, onPage, onLogout, children }: {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur border-t border-border flex z-40 safe-area-pb">
         {BOTTOM_NAV.map(n => (
           <button key={n.id} onClick={() => onPage(n.id)}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors ${page === n.id ? "text-primary" : "text-muted-foreground"}`}>
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2 transition-colors ${page === n.id ? "text-primary" : "text-muted-foreground"}`}>
             <span className="text-base leading-none">{n.icon}</span>
             <span className="text-[8px] font-medium leading-none mt-0.5">{n.label}</span>
           </button>
@@ -304,7 +431,7 @@ function Layout({ page, onPage, onLogout, children }: {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-function Dashboard({ api }: { api: ReturnType<typeof useApi> }) {
+function Dashboard({ api, settings }: { api: ReturnType<typeof useApi>; settings: AppSettings }) {
   const [info, setInfo] = useState<BotInfo | null>(null);
   const [uptime, setUptime] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -369,6 +496,25 @@ function Dashboard({ api }: { api: ReturnType<typeof useApi> }) {
             <div><p className="text-2xl font-bold text-yellow-400">{info.stats.totalGroups - info.stats.activeGroups - info.stats.bannedGroups}</p><p className="text-xs text-muted-foreground">Unauthorized</p></div>
             <div><p className="text-2xl font-bold text-red-400">{info.stats.bannedGroups}</p><p className="text-xs text-muted-foreground">Banned</p></div>
           </div>
+        </div>
+      )}
+
+      {/* Watermark */}
+      {(settings.watermarkText || settings.watermarkHandle) && (
+        <div className="pt-2 text-center space-y-0.5">
+          {settings.watermarkText && (
+            <p className="text-xs text-muted-foreground/60">{settings.watermarkText}</p>
+          )}
+          {settings.watermarkHandle && (
+            <a
+              href={settings.watermarkLink || "#"}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary/60 hover:text-primary transition-colors font-medium"
+            >
+              {settings.watermarkHandle}
+            </a>
+          )}
         </div>
       )}
     </div>
@@ -857,7 +1003,7 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get("/groups").then((g) => {
+    api.get("/groups").then(g => {
       const gs = g as Group[];
       setGroups(gs);
       if (gs.length > 0 && !groupId) setGroupId(gs[0]!.groupId);
@@ -925,16 +1071,13 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
       <SectionHeader title="Filters & Content" sub="Manage blacklisted words, auto-reply filters, and saved notes per group" />
 
       {/* Group selector */}
-      <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-card border border-border rounded-xl p-3 flex items-center gap-3">
         <span className="text-sm text-muted-foreground flex-shrink-0 font-medium">Group:</span>
         {groups.length === 0 ? (
           <span className="text-sm text-muted-foreground">No groups yet</span>
         ) : (
-          <select
-            className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            value={groupId ?? ""}
-            onChange={e => setGroupId(parseInt(e.target.value, 10))}
-          >
+          <select className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            value={groupId ?? ""} onChange={e => setGroupId(parseInt(e.target.value, 10))}>
             {groups.map(g => <option key={g.groupId} value={g.groupId}>{g.title || `Group ${g.groupId}`} — {g.groupId}</option>)}
           </select>
         )}
@@ -949,103 +1092,105 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
             {tabBtn("notes", "📓 Notes")}
           </div>
 
-          {loading ? <div className="flex justify-center py-8"><Spinner /></div> : (
-
-            <>
-              {/* ── Blacklist tab ── */}
-              {tab === "blacklist" && (
-                <div className="space-y-3">
-                  <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add blocked word</p>
-                    <div className="flex gap-2">
-                      <Input placeholder="e.g. badword" value={blWord} onChange={e => setBlWord(e.target.value)} onKeyDown={e => e.key === "Enter" && addBl()} />
-                      <Btn onClick={addBl} loading={blAdding}>Add</Btn>
+          {/* Tab content — fixed min-height prevents zoom/shift when switching */}
+          <div className="min-h-[320px]">
+            {loading ? (
+              <div className="flex justify-center py-10"><Spinner /></div>
+            ) : (
+              <>
+                {/* ── Blacklist tab ── */}
+                {tab === "blacklist" && (
+                  <div className="space-y-3">
+                    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add blocked word</p>
+                      <div className="flex gap-2">
+                        <Input placeholder="e.g. badword" value={blWord} onChange={e => setBlWord(e.target.value)} onKeyDown={e => e.key === "Enter" && addBl()} />
+                        <Btn onClick={addBl} loading={blAdding}>Add</Btn>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Matched whole-word, case-insensitive. Bot deletes messages containing it.</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">Word is matched whole-word, case-insensitive. Bot will delete messages containing it.</p>
-                  </div>
-                  {blacklist.length === 0 ? <EmptyState icon="🚫" text="No blacklisted words for this group" /> : (
-                    <div className="bg-card border border-border rounded-xl divide-y divide-border/50">
-                      {blacklist.map(word => (
-                        <div key={word} className="flex items-center justify-between px-4 py-3 gap-3">
-                          <code className="text-sm font-mono text-foreground">{word}</code>
-                          <Btn size="sm" variant="danger" onClick={() => removeBl(word)}>✕ Remove</Btn>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Filters tab ── */}
-              {tab === "filters" && (
-                <div className="space-y-3">
-                  <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add auto-reply filter</p>
-                    <div className="space-y-2">
-                      <Input placeholder="Keyword (e.g. hello)" value={fWord} onChange={e => setFWord(e.target.value)} />
-                      <Input placeholder="Reply text (e.g. Hello there! Welcome to the group.)" value={fReply} onChange={e => setFReply(e.target.value)} onKeyDown={e => e.key === "Enter" && addFilter()} />
-                    </div>
-                    <Btn onClick={addFilter} loading={fAdding}>✅ Save Filter</Btn>
-                    <p className="text-xs text-muted-foreground">When a member sends a message containing the keyword, the bot auto-replies with the reply text.</p>
-                  </div>
-                  {filterItems.length === 0 ? <EmptyState icon="📋" text="No filters for this group" /> : (
-                    <div className="space-y-2">
-                      {filterItems.map(f => (
-                        <div key={f.word} className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-semibold text-muted-foreground">Keyword:</span>
-                              <code className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">{f.word}</code>
-                            </div>
-                            <p className="text-sm text-foreground break-words">{f.reply}</p>
+                    {blacklist.length === 0 ? <EmptyState icon="🚫" text="No blacklisted words for this group" /> : (
+                      <div className="bg-card border border-border rounded-xl divide-y divide-border/50">
+                        {blacklist.map(word => (
+                          <div key={word} className="flex items-center justify-between px-4 py-3 gap-3">
+                            <code className="text-sm font-mono text-foreground">{word}</code>
+                            <Btn size="sm" variant="danger" onClick={() => removeBl(word)}>✕ Remove</Btn>
                           </div>
-                          <Btn size="sm" variant="danger" onClick={() => removeFilter(f.word)}>✕</Btn>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Notes tab ── */}
-              {tab === "notes" && (
-                <div className="space-y-3">
-                  <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      {editNote ? `Editing note: ${editNote}` : "Save new note"}
-                    </p>
-                    <div className="space-y-2">
-                      <Input placeholder="Note name (e.g. rules)" value={nName} onChange={e => setNName(e.target.value)} disabled={!!editNote} />
-                      <textarea value={nContent} onChange={e => setNContent(e.target.value)} rows={4} placeholder="Note content (HTML supported). Members retrieve it with #notename" className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y transition-shadow" />
-                    </div>
-                    <div className="flex gap-2">
-                      <Btn onClick={addNote} loading={nAdding}>{editNote ? "✏️ Update Note" : "📓 Save Note"}</Btn>
-                      {editNote && <Btn variant="ghost" onClick={() => { setEditNote(null); setNName(""); setNContent(""); }}>Cancel</Btn>}
-                    </div>
-                    <p className="text-xs text-muted-foreground">Members retrieve notes in chat with <code className="bg-muted px-1 rounded">#notename</code></p>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {notes.length === 0 ? <EmptyState icon="📓" text="No notes for this group" /> : (
-                    <div className="space-y-2">
-                      {notes.map(n => (
-                        <div key={n.name} className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <div className="flex items-center gap-2">
+                )}
+
+                {/* ── Filters tab ── */}
+                {tab === "filters" && (
+                  <div className="space-y-3">
+                    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add auto-reply filter</p>
+                      <div className="space-y-2">
+                        <Input placeholder="Keyword (e.g. hello)" value={fWord} onChange={e => setFWord(e.target.value)} />
+                        <Input placeholder="Reply text" value={fReply} onChange={e => setFReply(e.target.value)} onKeyDown={e => e.key === "Enter" && addFilter()} />
+                      </div>
+                      <Btn onClick={addFilter} loading={fAdding}>✅ Save Filter</Btn>
+                      <p className="text-xs text-muted-foreground">When a member sends a message with the keyword, the bot auto-replies.</p>
+                    </div>
+                    {filterItems.length === 0 ? <EmptyState icon="📋" text="No filters for this group" /> : (
+                      <div className="space-y-2">
+                        {filterItems.map(f => (
+                          <div key={f.word} className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-muted-foreground">Keyword:</span>
+                                <code className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">{f.word}</code>
+                              </div>
+                              <p className="text-sm text-foreground break-words">{f.reply}</p>
+                            </div>
+                            <Btn size="sm" variant="danger" onClick={() => removeFilter(f.word)}>✕</Btn>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Notes tab ── */}
+                {tab === "notes" && (
+                  <div className="space-y-3">
+                    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        {editNote ? `Editing: #${editNote}` : "Save new note"}
+                      </p>
+                      <div className="space-y-2">
+                        <Input placeholder="Note name (e.g. rules)" value={nName} onChange={e => setNName(e.target.value)} disabled={!!editNote} />
+                        <textarea value={nContent} onChange={e => setNContent(e.target.value)} rows={4} placeholder="Note content (HTML supported). Retrieve with #notename" className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y transition-shadow" />
+                      </div>
+                      <div className="flex gap-2">
+                        <Btn onClick={addNote} loading={nAdding}>{editNote ? "✏️ Update Note" : "📓 Save Note"}</Btn>
+                        {editNote && <Btn variant="ghost" onClick={() => { setEditNote(null); setNName(""); setNContent(""); }}>Cancel</Btn>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Members retrieve with <code className="bg-muted px-1 rounded">#notename</code></p>
+                    </div>
+                    {notes.length === 0 ? <EmptyState icon="📓" text="No notes for this group" /> : (
+                      <div className="space-y-2">
+                        {notes.map(n => (
+                          <div key={n.name} className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
+                            <div className="flex-1 min-w-0 space-y-1">
                               <code className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">#{n.name}</code>
+                              <p className="text-xs text-muted-foreground line-clamp-2 break-words">{n.content}</p>
                             </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2 break-words">{n.content}</p>
+                            <div className="flex gap-1.5 flex-shrink-0">
+                              <Btn size="sm" variant="ghost" onClick={() => { setEditNote(n.name); setNName(n.name); setNContent(n.content); }}>✏️</Btn>
+                              <Btn size="sm" variant="danger" onClick={() => removeNote(n.name)}>✕</Btn>
+                            </div>
                           </div>
-                          <div className="flex gap-1.5 flex-shrink-0">
-                            <Btn size="sm" variant="ghost" onClick={() => { setEditNote(n.name); setNName(n.name); setNContent(n.content); }}>✏️</Btn>
-                            <Btn size="sm" variant="danger" onClick={() => removeNote(n.name)}>✕</Btn>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -1077,9 +1222,7 @@ function Logs({ api }: { api: ReturnType<typeof useApi> }) {
       const data = await api.get(`/logs${params}`) as LogEntry[];
       setLogs(data);
       setLoading(false);
-    } catch {
-      setLoading(false);
-    }
+    } catch { setLoading(false); }
   }, [api, category]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
@@ -1090,16 +1233,11 @@ function Logs({ api }: { api: ReturnType<typeof useApi> }) {
   }, [load, autoRefresh]);
 
   useEffect(() => {
-    if (logs.length > prevCount.current && listRef.current) {
-      listRef.current.scrollTop = 0;
-    }
+    if (logs.length > prevCount.current && listRef.current) listRef.current.scrollTop = 0;
     prevCount.current = logs.length;
   }, [logs.length]);
 
-  const fmtTime = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  };
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const fmtDate = (ts: number) => new Date(ts).toLocaleDateString([], { month: "short", day: "numeric" });
 
   return (
@@ -1108,28 +1246,18 @@ function Logs({ api }: { api: ReturnType<typeof useApi> }) {
         title="Activity Logs"
         sub="Real-time bot activity across all groups"
         action={
-          <button
-            onClick={() => setAutoRefresh(a => !a)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              autoRefresh ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : "text-muted-foreground border-border hover:bg-accent"
-            }`}
-          >
+          <button onClick={() => setAutoRefresh(a => !a)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${autoRefresh ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : "text-muted-foreground border-border hover:bg-accent"}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? "bg-emerald-400 animate-pulse" : "bg-gray-500"}`} />
             {autoRefresh ? "Live" : "Paused"}
           </button>
         }
       />
 
-      {/* Category filter */}
       <div className="flex flex-wrap gap-1.5">
         {ALL_CATEGORIES.map(cat => (
           <button key={cat} onClick={() => setCategory(cat)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              category === cat
-                ? "bg-primary/15 text-primary border-primary/30"
-                : "text-muted-foreground border-border hover:bg-accent hover:text-foreground"
-            }`}
-          >
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${category === cat ? "bg-primary/15 text-primary border-primary/30" : "text-muted-foreground border-border hover:bg-accent hover:text-foreground"}`}>
             {cat === "all" ? "🔀 All" : `${LOG_CAT_ICONS[cat] || ""} ${cat}`}
           </button>
         ))}
@@ -1138,7 +1266,7 @@ function Logs({ api }: { api: ReturnType<typeof useApi> }) {
       {loading ? (
         <div className="flex justify-center py-10"><Spinner /></div>
       ) : logs.length === 0 ? (
-        <EmptyState icon="🪵" text={`No ${category === "all" ? "" : category + " "}logs yet. Logs appear as the bot takes actions.`} />
+        <EmptyState icon="🪵" text={`No ${category === "all" ? "" : category + " "}logs yet. Activity appears as the bot takes actions.`} />
       ) : (
         <div ref={listRef} className="space-y-1.5 max-h-[60vh] overflow-y-auto">
           {logs.map(entry => (
@@ -1160,7 +1288,7 @@ function Logs({ api }: { api: ReturnType<typeof useApi> }) {
 
       {logs.length > 0 && (
         <p className="text-xs text-center text-muted-foreground">
-          Showing {logs.length} recent entries · {autoRefresh ? "Refreshes every 4s" : "Auto-refresh paused"}
+          {logs.length} entries · {autoRefresh ? "Refreshes every 4s" : "Auto-refresh paused"}
         </p>
       )}
     </div>
@@ -1174,8 +1302,10 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [checking, setChecking] = useState(true);
   const [page, setPage] = useState<Page>("dashboard");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const api = useApi(token);
   const { show: toast, el: toastEl } = useToast();
+  const { settings, save: saveSettings } = useSettings();
 
   useEffect(() => {
     if (!token) { setChecking(false); return; }
@@ -1191,16 +1321,27 @@ export default function App() {
   if (!authed || !token) return <Login onLogin={t => { setToken(t); setAuthed(true); }} />;
 
   return (
-    <Layout page={page} onPage={setPage} onLogout={logout}>
-      {toastEl}
-      {page === "dashboard" && <Dashboard api={api} />}
-      {page === "groups"    && <Groups    api={api} toast={toast} />}
-      {page === "filters"   && <Filters   api={api} toast={toast} />}
-      {page === "keys"      && <Keys      api={api} toast={toast} />}
-      {page === "admins"    && <Admins    api={api} toast={toast} />}
-      {page === "security"  && <Security  api={api} toast={toast} />}
-      {page === "broadcast" && <Broadcast api={api} toast={toast} />}
-      {page === "logs"      && <Logs      api={api} />}
-    </Layout>
+    <>
+      <Layout page={page} onPage={setPage} onLogout={logout} onSettings={() => setSettingsOpen(true)}>
+        {toastEl}
+        {page === "dashboard" && <Dashboard api={api} settings={settings} />}
+        {page === "groups"    && <Groups    api={api} toast={toast} />}
+        {page === "filters"   && <Filters   api={api} toast={toast} />}
+        {page === "keys"      && <Keys      api={api} toast={toast} />}
+        {page === "admins"    && <Admins    api={api} toast={toast} />}
+        {page === "security"  && <Security  api={api} toast={toast} />}
+        {page === "broadcast" && <Broadcast api={api} toast={toast} />}
+        {page === "logs"      && <Logs      api={api} />}
+      </Layout>
+
+      {settingsOpen && (
+        <SettingsModal
+          settings={settings}
+          onSave={saveSettings}
+          onClose={() => setSettingsOpen(false)}
+          token={token}
+        />
+      )}
+    </>
   );
 }

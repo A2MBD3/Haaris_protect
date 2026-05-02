@@ -613,7 +613,11 @@ bot.on("message", async (ctx, next) => {
     }
 
     const reply = await findFilter(chat.id, text);
-    if (reply) await ctx.reply(reply).catch(() => {});
+    if (reply) {
+      await ctx.reply(reply).catch(() => {});
+      const filterName = await getMemberName(ctx.api, chat.id, userId);
+      await logFilter(ctx.api, `💬 <b>Filter triggered</b> in <code>${chat.id}</code> — ${userLink(userId, filterName)} sent a matching message`);
+    }
 
     // #notename lookup
     if (text.startsWith("#")) {

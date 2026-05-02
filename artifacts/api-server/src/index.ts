@@ -23,6 +23,23 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // ── Keep-alive self-ping (prevents Replit from sleeping) ──────────────────
+  const domains = process.env["REPLIT_DOMAINS"];
+  const pingUrl = domains
+    ? `https://${domains.split(",")[0]!.trim()}/api/healthz`
+    : `http://localhost:${port}/api/healthz`;
+
+  logger.info({ pingUrl }, "Keep-alive pinger started (every 4 min)");
+
+  setInterval(async () => {
+    try {
+      const res = await fetch(pingUrl);
+      if (!res.ok) logger.warn({ status: res.status }, "Keep-alive ping returned non-OK");
+    } catch (err) {
+      logger.warn({ err }, "Keep-alive ping failed");
+    }
+  }, 4 * 60 * 1000);
 });
 
 startBot().catch((err) => {
