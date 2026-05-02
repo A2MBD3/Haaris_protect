@@ -54,7 +54,7 @@ import {
 import { parseDuration, parseUserId, formatDuration, escapeHtml, fmtAdmin, fmtGroupCtx, fmtGroupById, fmtUser } from "./utils";
 import { addTag, getUserTags } from "./tags";
 import { upsertUserSeen, getUserActivity } from "./activity";
-import { db, warningsTable } from "@workspace/db";
+import { db, warningsTable, authKeysTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 const token = process.env["TELEGRAM_BOT_TOKEN"];
@@ -1263,14 +1263,55 @@ bot.command("antichannel", async (ctx) => {
 bot.command("help", async (ctx) => {
   if (ctx.chat?.type === "private") {
     await ctx.reply(
-      `👑 <b>Super Admin Commands</b>\n<i>(Used in private chat with the bot)</i>\n\n` +
-      `<b>🔑 Tokens</b>\n/genkey [time] [uses] — Create auth token\n/keys — List all tokens\n/rmkey [key] — Revoke a token\n\n` +
-      `<b>📋 Groups</b>\n/groups — List all groups\n/bangroup [id] — Ban a group\n/unbangroup [id] — Unban a group\n/destroy [id] — Rename + ban all admins\n/invite [id] — Get invite link\n/leave [id] — Bot leaves + revokes auth\n\n` +
-      `<b>🌍 Global Mod</b>\n/gban [time] [userId] — Ban from all groups\n/resetrestriction [id] — Clear super admin restrictions in group\n\n` +
-      `<b>👑 Supers</b>\n/addsuper [id] — Add super admin\n/rmsuper [id] — Remove super admin\n/setadmin [groupId] [userId?] — Promote to admin\n\n` +
-      `<b>✏️ Edit</b>\n/edit — Reply to a bot message to queue edit\n\n` +
-      `<b>📡 Logs</b>\n/setlog [id] — Set log channel or group (forum → auto-creates topics)\n/setlog [id] recreate — Force-rebuild all 5 forum topics\n/clearlog — Disable log channel\n/logstatus — Show current log target\n\n` +
-      `<b>🔄 Sync</b>\n/resync — Check all groups for bot admin status`,
+      `👑 <b>Super Admin Commands</b>\n<i>Private chat only</i>\n\n` +
+
+      `<b>🔑 Auth Keys</b>\n` +
+      `/genkey [time] [uses] — Create auth token\n` +
+      `/keys — List all tokens\n` +
+      `/rmkey [key] — Revoke a token\n\n` +
+
+      `<b>📋 Groups</b>\n` +
+      `/groups — List all groups\n` +
+      `/bangroup [id] — Ban a group\n` +
+      `/unbangroup [id] — Unban a group\n` +
+      `/destroy [id] — Rename + ban all admins\n` +
+      `/invite [id] — Get invite link\n` +
+      `/leave [id] — Bot leaves + revokes auth\n` +
+      `/backup [groupId] — Export config as JSON\n` +
+      `/restore [json] — Restore config from JSON\n` +
+      `/sync — Sync all groups (check membership)\n\n` +
+
+      `<b>🌍 Global Moderation</b>\n` +
+      `/gban [time] [userId] — Ban from all groups\n` +
+      `/ungban [userId] — Remove global ban\n` +
+      `/gmute [time] [userId] — Mute across all groups\n` +
+      `/ungmute [userId] — Remove global mute\n` +
+      `/gbans — List all global bans & mutes\n` +
+      `/resetrestriction [id] — Clear restrictions in group\n\n` +
+
+      `<b>📢 Broadcast</b>\n` +
+      `/broadcast [msg] — Send to all authorized groups\n\n` +
+
+      `<b>👑 Super Admins</b>\n` +
+      `/addsuper [id] — Add super admin\n` +
+      `/rmsuper [id] — Remove super admin\n` +
+      `/supers — List all super admins\n` +
+      `/setadmin [groupId] [userId?] — Promote to admin\n\n` +
+
+      `<b>🔍 Info</b>\n` +
+      `/get [id|key] — Full info card (group/user/token)\n\n` +
+
+      `<b>✏️ Edit</b>\n` +
+      `/edit — Reply to bot message to edit it\n\n` +
+
+      `<b>📡 Logging</b>\n` +
+      `/setlog [id] — Set log channel or forum group\n` +
+      `/setlog [id] recreate — Rebuild 5 forum topics\n` +
+      `/clearlog — Disable logging\n` +
+      `/logstatus — Show current log target\n\n` +
+
+      `<b>🔄 Maintenance</b>\n` +
+      `/resync — Check all groups for bot admin status`,
       { parse_mode: "HTML" },
     );
   } else {
@@ -1279,22 +1320,78 @@ bot.command("help", async (ctx) => {
       `🤖 <b>@${botUsername} Commands</b>\n\n` +
       (isAdmin ? (
         `<b>👮 Moderation</b>\n` +
-        `/ban [time] — Ban user\n/unban — Unban user\n/kick — Kick user\n/promote — Promote to admin\n/demote — Demote admin\n` +
-        `/mute [time] — Mute user\n/unmute — Unmute user\n` +
-        `/warn — Warn user\n/unwarn — Remove one warning\n/resetwarns — Clear all warnings\n/warns — Check warn count\n/warnsetting [limit] [time] [mute|ban]\n\n` +
-        `<b>🌊 Flood</b>\n/flood [limit] — Enable flood control\n/flood off — Disable\n/floodaction [mute|ban|kick] [time] — Change flood action\n\n` +
-        `<b>🔒 Locks</b>\n/lock [type] | /unlock [type] | /locktypes\n\n` +
-        `<b>🚫 Blacklist</b>\n/bl [word] | /rmbl [word] | /blacklisted | /rmblacklist\n/blsetting [hits] [time] [mute|ban]\n\n` +
-        `<b>💬 Filters</b>\n/filter [word] [reply] | /filters | /rmfilter [word]\n\n` +
-        `<b>📓 Notes</b>\n/save [name] [text] | /notes | /rmnote [name]\n#notename — show note in chat\n\n` +
-        `<b>👋 Welcome</b>\n/setwelcome [msg] — Set join welcome (placeholders: {name} {username} {id} {group})\n/resetwelcome — Disable welcome\n/welcome — Check current welcome\n\n` +
-        `<b>✅ Approvals</b>\n/approve — Exempt user from locks/blacklist/flood\n/unapprove — Revoke approval\n/approved — List approved users\n/unapproveall — Clear all approvals\n\n` +
-        `<b>🛡️ Protection</b>\n/captcha [y|n] [math|button]\n/antibot y|n | /antichannel y|n\n\n` +
-        `<b>🔑 Auth</b>\n/redeem [token]\n\n` +
-        `<b>ℹ️ Info</b>\n/info — User details\n/approval — Check approval status\n`
+        `/ban [time] — Ban user\n` +
+        `/unban — Unban user\n` +
+        `/kick — Kick user\n` +
+        `/mute [time] — Mute user\n` +
+        `/unmute — Unmute user\n` +
+        `/promote — Promote to admin\n` +
+        `/demote — Demote admin\n` +
+        `/warn — Warn user\n` +
+        `/unwarn — Remove one warning\n` +
+        `/resetwarns — Clear all warnings\n` +
+        `/warns — Check warn count\n` +
+        `/warnsetting [limit] [time] [mute|ban]\n` +
+        `/del [N] — Delete last N messages\n` +
+        `/pin — Pin replied message\n` +
+        `/bans — Show active bans/mutes in this group\n` +
+        `/tag [id] [tagname] — Tag a user\n\n` +
+
+        `<b>🌊 Flood Control</b>\n` +
+        `/flood [limit] — Enable flood control\n` +
+        `/flood off — Disable\n` +
+        `/floodaction [mute|ban|kick] [time]\n\n` +
+
+        `<b>🔒 Locks</b>\n` +
+        `/lock [type] | /unlock [type] | /locktypes\n` +
+        `/lockaction [limit] [action] [time] — Auto-action on repeat violations\n\n` +
+
+        `<b>🚫 Blacklist</b>\n` +
+        `/bl [word] | /rmbl [word] | /blacklisted | /rmblacklist\n` +
+        `/blsetting [hits] [time] [mute|ban]\n` +
+        `/gbl y|n — Sync global blacklist\n\n` +
+
+        `<b>💬 Filters</b>\n` +
+        `/filter [word] [reply] | /filters | /rmfilter [word]\n\n` +
+
+        `<b>📓 Notes</b>\n` +
+        `/save [name] [text] | /notes | /rmnote [name]\n` +
+        `#notename — show a saved note\n\n` +
+
+        `<b>👋 Welcome</b>\n` +
+        `/setwelcome [msg] — Set welcome (use {name} {id} {group})\n` +
+        `/resetwelcome — Disable\n` +
+        `/welcome — Show current welcome\n\n` +
+
+        `<b>🚪 Join Must</b>\n` +
+        `/joinmust [@channel] — Require members to join a channel\n` +
+        `/rmjoinmust — Remove requirement\n\n` +
+
+        `<b>✅ Approvals</b>\n` +
+        `/approve — Exempt user from all restrictions\n` +
+        `/unapprove — Revoke approval\n` +
+        `/approved — List approved users\n` +
+        `/unapproveall — Clear all approvals\n\n` +
+
+        `<b>🛡️ Protection</b>\n` +
+        `/captcha [y|n] [math|button]\n` +
+        `/antibot y|n | /antichannel y|n\n\n` +
+
+        `<b>🔑 Auth</b>\n` +
+        `/redeem [token] — Authorize this group\n\n` +
+
+        `<b>ℹ️ Info</b>\n` +
+        `/info — User details\n` +
+        `/id | /me — Show your or replied user's ID\n` +
+        `/approval — Check approval status\n` +
+        `/backup — Export this group's config`
       ) : (
-        `<b>ℹ️ Info</b>\n/info — User details (reply to message)\n/warns — Check your warnings\n/approval — Check your approval status\n` +
-        `\n<i>Tip: #notename to view a saved note</i>`
+        `<b>ℹ️ Info</b>\n` +
+        `/info — User details (reply to a message)\n` +
+        `/warns — Check your warnings\n` +
+        `/id | /me — Show your Telegram ID\n` +
+        `/approval — Check your approval status\n\n` +
+        `<i>💡 Tip: send #notename to view a saved note</i>`
       )),
       { parse_mode: "HTML" },
     );
@@ -2189,25 +2286,28 @@ bot.command("get", async (ctx) => {
   const raw = args[0];
   if (!raw) { await ctx.reply("Usage: /get [groupId | userId | token_key]"); return; }
 
-  // Check if it's a token key (letters+digits, 10-20 chars, no leading minus)
+  // Check if it's a token key (hex, 10-20 chars, no leading minus)
   const keyPattern = /^[A-Z0-9]{8,20}$/i;
   if (keyPattern.test(raw)) {
-    const { db: _db, authKeysTable } = await import("@workspace/db");
-    const { eq: _eq } = await import("drizzle-orm");
-    const rows = await _db.select().from(authKeysTable).where(_eq(authKeysTable.key, raw.toUpperCase())).limit(1);
+    const rows = await db.select().from(authKeysTable).where(eq(authKeysTable.key, raw.toUpperCase())).limit(1);
     if (rows.length > 0) {
       const k = rows[0]!;
       const now = Date.now();
       const expired = k.expiresAt && k.expiresAt.getTime() < now;
       const exhausted = k.usedCount >= k.maxUses;
-      const status = expired ? "Expired" : exhausted ? "Exhausted" : "Active";
+      const status = expired ? "Expired ⚠️" : exhausted ? "Used up 🔴" : "Active ✅";
       const usedBy = await listGroups();
       const usingGroups = usedBy.filter((g) => g.authorizedKey?.toUpperCase() === raw.toUpperCase());
       const groupLines = usingGroups.length > 0
-        ? usingGroups.map((g, i) => `  - ${g.title || "Group"} → ID ${g.groupId}`).join("\n")
+        ? usingGroups.map((g) => `  · ${escapeHtml(g.title || "Group")} — <code>${g.groupId}</code>`).join("\n")
         : "  (none)";
       return await ctx.reply(
-        `<pre>Type: Token\nKey: ${k.key}\nUses: ${k.usedCount}/${k.maxUses}\nGroups:\n${groupLines}\nExpires: ${fmtDate(k.expiresAt)}${daysLeft(k.expiresAt)}\nStatus: ${status}</pre>`,
+        `🔑 <b>Token Info</b>\n\n` +
+        `Key: <code>${k.key}</code>\n` +
+        `📊 Uses: <b>${k.usedCount} / ${k.maxUses}</b>\n` +
+        `🏘 Groups:\n${groupLines}\n` +
+        `⏳ Expires: ${fmtDate(k.expiresAt)}${daysLeft(k.expiresAt)}\n` +
+        `Status: ${status}`,
         { parse_mode: "HTML" },
       );
     }
@@ -2254,7 +2354,14 @@ bot.command("get", async (ctx) => {
     try { inviteLink = chatInfo.invite_link || (await ctx.api.exportChatInviteLink(id)) || "—"; } catch {}
 
     await ctx.reply(
-      `<pre>ID: ${id}\nType: Group\nName: ${title}\nOwner: ${ownerName}\nMembers: ${memberCount}\nAdmins: ${adminCount}\nBots: ${botCount}\nBanned: ${bannedCount}\nMuted: ${mutedCount}\nKey: ${key}\nExpires: ${fmtDate(expires)}${daysLeft(expires)}\nInvite Link: ${inviteLink}</pre>`,
+      `🏢 <b>${escapeHtml(title)}</b>\n\n` +
+      `🆔 <code>${id}</code>  ·  ${type === "supergroup" ? "Supergroup" : "Group"}\n` +
+      `👑 Owner: ${escapeHtml(ownerName)}\n` +
+      `👥 Members: <b>${memberCount}</b>  ·  Admins: ${adminCount}  ·  Bots: ${botCount}\n` +
+      `⛔ Banned: ${bannedCount}  ·  🔇 Muted: ${mutedCount}\n` +
+      (key !== "—" ? `🔑 Key: <code>${key}</code>\n` : `🔑 Key: —\n`) +
+      `⏳ Expires: ${fmtDate(expires)}${daysLeft(expires)}\n` +
+      (inviteLink !== "—" ? `🔗 ${inviteLink}` : `🔗 No invite link`),
       { parse_mode: "HTML" },
     );
     return;
@@ -2279,7 +2386,11 @@ bot.command("get", async (ctx) => {
     let inviteLink = chatInfo.invite_link || "—";
 
     await ctx.reply(
-      `<pre>ID: ${id}\nType: Channel\nName: ${title}\nOwner: ${ownerName}\nSubscribers: ${memberCount.toLocaleString()}\nAdmins: ${adminCount}\nBots: ${botCount}\nInvite Link: ${inviteLink}</pre>`,
+      `📢 <b>${escapeHtml(title)}</b>\n\n` +
+      `🆔 <code>${id}</code>  ·  Channel\n` +
+      `👑 Owner: ${escapeHtml(ownerName)}\n` +
+      `👥 Subscribers: <b>${memberCount.toLocaleString()}</b>  ·  Admins: ${adminCount}  ·  Bots: ${botCount}\n` +
+      (inviteLink !== "—" ? `🔗 ${inviteLink}` : `🔗 No invite link`),
       { parse_mode: "HTML" },
     );
     return;
@@ -2298,7 +2409,9 @@ bot.command("get", async (ctx) => {
 
     if (isBot) {
       await ctx.reply(
-        `<pre>ID: ${id}\nType: Bot\nName: ${name}\nUsername: ${username}</pre>`,
+        `🤖 <b>${escapeHtml(name)}</b>\n\n` +
+        `🆔 <code>${id}</code>  ·  Bot\n` +
+        `📛 Username: ${username}`,
         { parse_mode: "HTML" },
       );
       return;
@@ -2311,7 +2424,13 @@ bot.command("get", async (ctx) => {
     const totalWarns = warnRows.reduce((s, r) => s + (r.count ?? 0), 0);
 
     await ctx.reply(
-      `<pre>ID: ${id}\nType: User\nName: ${name}\nUsername: ${username}\nJoined: ${joinedStr}\nGroups: ${groupCount}\nWarnings: ${totalWarns}\nMuted: ${globalMute ? "Yes" : "No"}\nBanned: ${globalBan ? "Yes" : "No"}\nTags: ${tagStr}\nLast Seen: ${lastSeenStr}</pre>`,
+      `👤 <b>${escapeHtml(name)}</b>\n\n` +
+      `🆔 <code>${id}</code>  ·  ${username !== "—" ? username : "No username"}\n` +
+      `📅 First seen: ${joinedStr}\n` +
+      `🏘 Groups: <b>${groupCount}</b>  ·  ⚠️ Warnings: <b>${totalWarns}</b>\n` +
+      `🔇 Muted: ${globalMute ? "Yes" : "No"}  ·  ⛔ Banned: ${globalBan ? "Yes" : "No"}\n` +
+      (tags.length > 0 ? `🏷 Tags: ${escapeHtml(tagStr)}\n` : ``) +
+      `👁 Last seen: ${lastSeenStr}`,
       { parse_mode: "HTML" },
     );
     return;
