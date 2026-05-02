@@ -1,5 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { bot } from "../bot";
+import { bot, getAdminPanelPassword } from "../bot";
 import {
   listGroups, getGroupSettings, updateGroupSettings,
   setGroupBanned,
@@ -11,7 +11,9 @@ import {
 import {
   getSuperAdmins, addSuperAdmin, removeSuperAdmin, isHardcodedSuper,
 } from "../bot/admin";
-import { createAuthKey, listAuthKeys, removeAuthKey } from "../bot/auth";
+import {
+  createAuthKey, listAuthKeys, removeAuthKey, consumeAuthKey, authorizeGroup, deauthorizeGroup,
+} from "../bot/auth";
 
 const router = Router();
 
@@ -19,8 +21,8 @@ const serverStart = Date.now();
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || !token || token !== secret) {
+  const adminPassword = getAdminPanelPassword();
+  if (!token || token !== adminPassword) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -112,11 +114,28 @@ router.post("/groups/:id/unban", async (req, res) => {
 router.post("/groups/:id/leave", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    try { await bot.api.sendMessage(id, "👋 Bot is leaving this group."); } catch {}
+    await deauthorizeGroup(id);
+    try { await bot.api.sendMessage(id, "👋 Bot is leaving this group and authorization has been revoked."); } catch {}
     await bot.api.leaveChat(id);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to leave group" });
+  }
+});
+
+router.post("/groups/:id/authorize", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { key } = req.body as { key?: string };
+    if (!key?.trim()) { res.status(400).json({ error: "key required" }); return; }
+    const result = await consumeAuthKey(key.trim(), id);
+    if (!result) { res.status(400).json({ error: "Invalid, expired, or used-up key" }); return; }
+    try {
+      await bot.api.sendMessage(id, "✅ This group has been authorized by an admin. The bot is now active here.");
+    } catch {}
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to authorize group" });
   }
 });
 

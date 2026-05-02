@@ -199,7 +199,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
   const [error, setError] = useState("");
 
   const submit = async () => {
-    if (!token.trim()) { setError("Please enter your admin token."); return; }
+    if (!token.trim()) { setError("Please enter your admin password."); return; }
     setLoading(true); setError("");
     try {
       const BASE = (import.meta.env.BASE_URL as string) || "/";
@@ -207,7 +207,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) { localStorage.setItem("admin_token", token); onLogin(token); }
-      else setError("Invalid token — check your SESSION_SECRET value.");
+      else setError("Wrong password. Send /adminpanel to the bot to get yours.");
     } catch { setError("Cannot reach the server. Is the bot running?"); }
     finally { setLoading(false); }
   };
@@ -223,11 +223,11 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
 
         <div className="bg-card border border-border rounded-2xl p-6 space-y-4 shadow-xl">
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin Token</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Password</label>
             <div className="relative">
               <Input
                 type={show ? "text" : "password"}
-                placeholder="Paste your SESSION_SECRET…"
+                placeholder="Paste your admin password…"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -241,7 +241,7 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Use the value of your <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] text-primary">SESSION_SECRET</code> environment variable
+              Send <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] text-primary">/adminpanel</code> to the bot in Telegram to get your password
             </p>
           </div>
 
@@ -525,15 +525,23 @@ function GroupSettings({ draft, onChange }: { draft: Record<string, unknown>; on
 
 function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: string, t?: "ok" | "err") => void }) {
   const [groups, setGroups] = useState<Group[]>([]);
+  const [keys, setKeys] = useState<AuthKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState<number | null>(null);
+  const [leaving, setLeaving] = useState<number | null>(null);
+  const [authorizing, setAuthorizing] = useState<number | null>(null);
+  const [authKey, setAuthKey] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setGroups(await api.get("/groups") as Group[]); }
+    try {
+      const [g, k] = await Promise.all([api.get("/groups"), api.get("/keys")]);
+      setGroups(g as Group[]);
+      setKeys(k as AuthKey[]);
+    }
     catch { toast("Failed to load groups", "err"); }
     finally { setLoading(false); }
   }, [api, toast]);
@@ -546,6 +554,30 @@ function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
       toast(`Group ${g.banned ? "unbanned" : "banned"} ✓`);
       load();
     } catch { toast("Action failed", "err"); }
+  };
+
+  const leaveGroup = async (g: Group) => {
+    if (!confirm(`Leave "${g.title || g.groupId}" and revoke authorization?`)) return;
+    setLeaving(g.groupId);
+    try {
+      await api.post(`/groups/${g.groupId}/leave`);
+      toast("Bot left the group ✓");
+      load();
+    } catch (e: unknown) { toast((e as Error).message || "Failed to leave", "err"); }
+    finally { setLeaving(null); }
+  };
+
+  const authorizeGroup = async (g: Group) => {
+    const key = authKey[g.groupId]?.trim();
+    if (!key) { toast("Select an auth key first", "err"); return; }
+    setAuthorizing(g.groupId);
+    try {
+      await api.post(`/groups/${g.groupId}/authorize`, { key });
+      toast("Group authorized ✓");
+      setAuthKey(prev => { const n = { ...prev }; delete n[g.groupId]; return n; });
+      load();
+    } catch (e: unknown) { toast((e as Error).message || "Authorization failed", "err"); }
+    finally { setAuthorizing(null); }
   };
 
   const saveSettings = async (g: Group) => {
@@ -562,6 +594,12 @@ function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
     g.title.toLowerCase().includes(search.toLowerCase()) ||
     String(g.groupId).includes(search)
   );
+
+  const activeKeys = keys.filter(k => {
+    const expired = k.expiresAt && new Date(k.expiresAt) < new Date();
+    const used = k.usedCount >= k.maxUses;
+    return !expired && !used;
+  });
 
   const keyBadge = (g: Group) => {
     if (!g.authorized) return <Badge color="gray">Unauthorized</Badge>;
@@ -590,15 +628,44 @@ function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
                     </div>
                     <p className="text-xs text-muted-foreground font-mono select-all">{g.groupId}</p>
                   </div>
-                  <div className="flex gap-1.5 flex-shrink-0">
+                  <div className="flex gap-1.5 flex-shrink-0 flex-wrap justify-end">
                     <Btn size="sm" variant="ghost" onClick={() => { setEditing(editing === g.groupId ? null : g.groupId); setDraft(g.settings || {}); }}>
                       {editing === g.groupId ? "↑" : "Settings"}
                     </Btn>
                     <Btn size="sm" variant={g.banned ? "ghost" : "danger"} onClick={() => toggleBan(g)}>
                       {g.banned ? "Unban" : "Ban"}
                     </Btn>
+                    <Btn size="sm" variant="danger" loading={leaving === g.groupId} onClick={() => leaveGroup(g)}>
+                      🚪 Leave
+                    </Btn>
                   </div>
                 </div>
+
+                {/* Authorize panel — shown for unauthorized or expired groups */}
+                {(!g.authorized || (g.authorizedExpiresAt && new Date(g.authorizedExpiresAt) < new Date())) && !g.banned && (
+                  <div className="border-t border-yellow-500/20 bg-yellow-500/5 px-4 py-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-yellow-400 font-medium flex-shrink-0">🔑 Authorize:</span>
+                    {activeKeys.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">No active keys — generate one in the Keys tab</span>
+                    ) : (
+                      <>
+                        <select
+                          className="flex-1 min-w-0 bg-input border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={authKey[g.groupId] || ""}
+                          onChange={e => setAuthKey(prev => ({ ...prev, [g.groupId]: e.target.value }))}
+                        >
+                          <option value="">Select a key…</option>
+                          {activeKeys.map(k => (
+                            <option key={k.key} value={k.key}>{k.key.slice(0, 20)}… ({k.usedCount}/{k.maxUses} uses)</option>
+                          ))}
+                        </select>
+                        <Btn size="sm" loading={authorizing === g.groupId} onClick={() => authorizeGroup(g)}>
+                          Authorize
+                        </Btn>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {editing === g.groupId && (
                   <div className="border-t border-border p-4 bg-muted/10 space-y-4">

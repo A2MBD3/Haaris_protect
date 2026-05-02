@@ -52,10 +52,16 @@ import {
   listApproved, unapproveAll,
 } from "./approvals";
 import { parseDuration, parseUserId, formatDuration, escapeHtml, fmtAdmin, fmtGroupCtx, fmtGroupById, fmtUser } from "./utils";
-import { addTag, getUserTags } from "./tags";
+import { addTag, getUserTags, clearUserTags } from "./tags";
 import { upsertUserSeen, getUserActivity } from "./activity";
 import { db, warningsTable, authKeysTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { createHash } from "node:crypto";
+
+export function getAdminPanelPassword(): string {
+  const tok = process.env["TELEGRAM_BOT_TOKEN"] || "";
+  return createHash("sha256").update("haaris:admin:" + tok).digest("hex").slice(0, 24);
+}
 
 const token = process.env["TELEGRAM_BOT_TOKEN"];
 if (!token) throw new Error("TELEGRAM_BOT_TOKEN environment variable is required");
@@ -180,8 +186,14 @@ async function isUserGroupAdmin(api: typeof bot.api, chatId: number, userId: num
   } catch { return false; }
 }
 
-function requireSuperPrivate(ctx: any): boolean {
-  return ctx.chat?.type === "private";
+async function requireSuperAdmin(ctx: any): Promise<boolean> {
+  if (ctx.chat?.type !== "private") return false;
+  const fromId = ctx.from?.id;
+  if (!fromId || !(await isSuperAdmin(fromId))) {
+    await ctx.reply("⛔ This command is for Super Admins only.").catch(() => {});
+    return false;
+  }
+  return true;
 }
 
 // ── my_chat_member ────────────────────────────────────────────────────────────
@@ -1262,146 +1274,61 @@ bot.command("antichannel", async (ctx) => {
 
 bot.command("help", async (ctx) => {
   if (ctx.chat?.type === "private") {
-    await ctx.reply(
-      `👑 <b>Super Admin Commands</b>\n<i>Private chat only</i>\n\n` +
-
-      `<b>🔑 Auth Keys</b>\n` +
-      `/genkey [time] [uses] — Create auth token\n` +
-      `/keys — List all tokens\n` +
-      `/rmkey [key] — Revoke a token\n\n` +
-
-      `<b>📋 Groups</b>\n` +
-      `/groups — List all groups\n` +
-      `/bangroup [id] — Ban a group\n` +
-      `/unbangroup [id] — Unban a group\n` +
-      `/destroy [id] — Rename + ban all admins\n` +
-      `/invite [id] — Get invite link\n` +
-      `/leave [id] — Bot leaves + revokes auth\n` +
-      `/backup [groupId] — Export config as JSON\n` +
-      `/restore [json] — Restore config from JSON\n` +
-      `/sync — Sync all groups (check membership)\n\n` +
-
-      `<b>🌍 Global Moderation</b>\n` +
-      `/gban [time] [userId] — Ban from all groups\n` +
-      `/ungban [userId] — Remove global ban\n` +
-      `/gmute [time] [userId] — Mute across all groups\n` +
-      `/ungmute [userId] — Remove global mute\n` +
-      `/gbans — List all global bans & mutes\n` +
-      `/resetrestriction [id] — Clear restrictions in group\n\n` +
-
-      `<b>📢 Broadcast</b>\n` +
-      `/broadcast [msg] — Send to all authorized groups\n\n` +
-
-      `<b>👑 Super Admins</b>\n` +
-      `/addsuper [id] — Add super admin\n` +
-      `/rmsuper [id] — Remove super admin\n` +
-      `/supers — List all super admins\n` +
-      `/setadmin [groupId] [userId?] — Promote to admin\n\n` +
-
-      `<b>🔍 Info</b>\n` +
-      `/get [id|key] — Full info card (group/user/token)\n\n` +
-
-      `<b>✏️ Edit</b>\n` +
-      `/edit — Reply to bot message to edit it\n\n` +
-
-      `<b>📡 Logging</b>\n` +
-      `/setlog [id] — Set log channel or forum group\n` +
-      `/setlog [id] recreate — Rebuild 5 forum topics\n` +
-      `/clearlog — Disable logging\n` +
-      `/logstatus — Show current log target\n\n` +
-
-      `<b>🔄 Maintenance</b>\n` +
-      `/resync — Check all groups for bot admin status`,
-      { parse_mode: "HTML" },
-    );
+    const fromId = ctx.from?.id;
+    if (fromId && await isSuperAdmin(fromId)) {
+      await ctx.reply(
+        `👑 <b>Super Admin Commands</b>\n\n` +
+        `<b>🔑 Keys:</b> /genkey · /keys · /rmkey\n` +
+        `<b>📋 Groups:</b> /groups · /bangroup · /unbangroup · /leave · /invite · /destroy · /backup · /restore · /sync\n` +
+        `<b>🌍 Global mod:</b> /gban · /ungban · /gmute · /ungmute · /gbans · /resetrestriction\n` +
+        `<b>📢 Broadcast:</b> /broadcast\n` +
+        `<b>👑 Supers:</b> /addsuper · /rmsuper · /supers · /setadmin\n` +
+        `<b>📡 Logging:</b> /setlog · /clearlog · /logstatus\n` +
+        `<b>🔍 Info:</b> /get · /edit\n` +
+        `<b>🔐 Panel:</b> /adminpanel`,
+        { parse_mode: "HTML" },
+      );
+    } else {
+      await ctx.reply(
+        `🤖 <b>@${botUsername}</b>\n\n` +
+        `/info · /warns · /id · /me · /approval\n` +
+        `<i>Send #notename to view a saved note</i>`,
+        { parse_mode: "HTML" },
+      );
+    }
   } else {
     const isAdmin = await senderIsGroupAdmin(ctx);
-    await ctx.reply(
-      `🤖 <b>@${botUsername} Commands</b>\n\n` +
-      (isAdmin ? (
-        `<b>👮 Moderation</b>\n` +
-        `/ban [time] — Ban user\n` +
-        `/unban — Unban user\n` +
-        `/kick — Kick user\n` +
-        `/mute [time] — Mute user\n` +
-        `/unmute — Unmute user\n` +
-        `/promote — Promote to admin\n` +
-        `/demote — Demote admin\n` +
-        `/warn — Warn user\n` +
-        `/unwarn — Remove one warning\n` +
-        `/resetwarns — Clear all warnings\n` +
-        `/warns — Check warn count\n` +
-        `/warnsetting [limit] [time] [mute|ban]\n` +
-        `/del [N] — Delete last N messages\n` +
-        `/pin — Pin replied message\n` +
-        `/bans — Show active bans/mutes in this group\n` +
-        `/tag [id] [tagname] — Tag a user\n\n` +
-
-        `<b>🌊 Flood Control</b>\n` +
-        `/flood [limit] — Enable flood control\n` +
-        `/flood off — Disable\n` +
-        `/floodaction [mute|ban|kick] [time]\n\n` +
-
-        `<b>🔒 Locks</b>\n` +
-        `/lock [type] | /unlock [type] | /locktypes\n` +
-        `/lockaction [limit] [action] [time] — Auto-action on repeat violations\n\n` +
-
-        `<b>🚫 Blacklist</b>\n` +
-        `/bl [word] | /rmbl [word] | /blacklisted | /rmblacklist\n` +
-        `/blsetting [hits] [time] [mute|ban]\n` +
-        `/gbl y|n — Sync global blacklist\n\n` +
-
-        `<b>💬 Filters</b>\n` +
-        `/filter [word] [reply] | /filters | /rmfilter [word]\n\n` +
-
-        `<b>📓 Notes</b>\n` +
-        `/save [name] [text] | /notes | /rmnote [name]\n` +
-        `#notename — show a saved note\n\n` +
-
-        `<b>👋 Welcome</b>\n` +
-        `/setwelcome [msg] — Set welcome (use {name} {id} {group})\n` +
-        `/resetwelcome — Disable\n` +
-        `/welcome — Show current welcome\n\n` +
-
-        `<b>🚪 Join Must</b>\n` +
-        `/joinmust [@channel] — Require members to join a channel\n` +
-        `/rmjoinmust — Remove requirement\n\n` +
-
-        `<b>✅ Approvals</b>\n` +
-        `/approve — Exempt user from all restrictions\n` +
-        `/unapprove — Revoke approval\n` +
-        `/approved — List approved users\n` +
-        `/unapproveall — Clear all approvals\n\n` +
-
-        `<b>🛡️ Protection</b>\n` +
-        `/captcha [y|n] [math|button]\n` +
-        `/antibot y|n | /antichannel y|n\n\n` +
-
-        `<b>🔑 Auth</b>\n` +
-        `/redeem [token] — Authorize this group\n\n` +
-
-        `<b>ℹ️ Info</b>\n` +
-        `/info — User details\n` +
-        `/id | /me — Show your or replied user's ID\n` +
-        `/approval — Check approval status\n` +
-        `/backup — Export this group's config`
-      ) : (
-        `<b>ℹ️ Info</b>\n` +
-        `/info — User details (reply to a message)\n` +
-        `/warns — Check your warnings\n` +
-        `/id | /me — Show your Telegram ID\n` +
-        `/approval — Check your approval status\n\n` +
-        `<i>💡 Tip: send #notename to view a saved note</i>`
-      )),
-      { parse_mode: "HTML" },
-    );
+    if (isAdmin) {
+      await ctx.reply(
+        `🤖 <b>@${botUsername} — Admin Commands</b>\n\n` +
+        `<b>👮 Mod:</b> /ban · /unban · /kick · /mute · /unmute · /warn · /unwarn · /resetwarns · /del · /pin\n` +
+        `<b>🏷️ Tags:</b> /tag · /untag · /tags\n` +
+        `<b>🌊 Flood:</b> /flood · /floodaction\n` +
+        `<b>🔒 Locks:</b> /lock · /unlock · /locktypes · /lockaction\n` +
+        `<b>🚫 Blacklist:</b> /bl · /rmbl · /blacklisted · /rmblacklist · /blsetting · /gbl\n` +
+        `<b>💬 Filters:</b> /filter · /rmfilter · /filters\n` +
+        `<b>📓 Notes:</b> /save · /rmnote · /notes\n` +
+        `<b>👋 Welcome:</b> /setwelcome · /resetwelcome · /welcome\n` +
+        `<b>🚪 Joinmust:</b> /joinmust · /rmjoinmust\n` +
+        `<b>✅ Approvals:</b> /approve · /unapprove · /approved · /unapproveall\n` +
+        `<b>🛡️ Protection:</b> /captcha · /antibot · /antichannel\n` +
+        `<b>🔑 Auth:</b> /redeem\n` +
+        `<b>ℹ️ Info:</b> /info · /id · /me · /warns · /bans · /approval · /backup`,
+        { parse_mode: "HTML" },
+      );
+    } else {
+      await ctx.reply(
+        `🤖 <b>@${botUsername}</b>\n\n/info · /warns · /id · /me · /approval\n<i>Send #notename to view a saved note</i>`,
+        { parse_mode: "HTML" },
+      );
+    }
   }
 });
 
 // ── Super Admin Commands (Private) ────────────────────────────────────────────
 
 bot.command("addsuper", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const id = parseUserId(args[0]);
   if (!id) { await ctx.reply("Usage: /addsuper [userId]"); return; }
@@ -1411,7 +1338,7 @@ bot.command("addsuper", async (ctx) => {
 });
 
 bot.command("rmsuper", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const id = parseUserId(args[0]);
   if (!id) { await ctx.reply("Usage: /rmsuper [userId]"); return; }
@@ -1422,7 +1349,7 @@ bot.command("rmsuper", async (ctx) => {
 });
 
 bot.command("groups", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const groups = await listGroups();
   if (groups.length === 0) { await ctx.reply("No groups recorded yet."); return; }
   const lines = groups.map((g) => `• <code>${g.groupId}</code> — ${escapeHtml(g.title || "(no title)")} — ${g.banned ? "🚫 banned" : "✅ active"}`);
@@ -1430,7 +1357,7 @@ bot.command("groups", async (ctx) => {
 });
 
 bot.command("gban", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   let durationSec = 0, targetArgs = args;
   if (args.length >= 1) { const d = parseDuration(args[0]); if (d !== null) { durationSec = d; targetArgs = args.slice(1); } }
@@ -1452,7 +1379,7 @@ bot.command("gban", async (ctx) => {
 });
 
 bot.command("resetrestriction", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /resetrestriction [groupId]"); return; }
@@ -1474,7 +1401,7 @@ bot.command("resetrestriction", async (ctx) => {
 });
 
 bot.command("destroy", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /destroy [groupId]"); return; }
@@ -1497,7 +1424,7 @@ bot.command("destroy", async (ctx) => {
 });
 
 bot.command("bangroup", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /bangroup [groupId]"); return; }
@@ -1511,7 +1438,7 @@ bot.command("bangroup", async (ctx) => {
 });
 
 bot.command("unbangroup", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /unbangroup [groupId]"); return; }
@@ -1523,7 +1450,7 @@ bot.command("unbangroup", async (ctx) => {
 // ── /resync ───────────────────────────────────────────────────────────────────
 
 bot.command("resync", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   await ctx.reply("🔄 Resyncing all known groups…");
 
   const groups = await listGroups();
@@ -1556,7 +1483,7 @@ bot.command("resync", async (ctx) => {
 // ── /leave (super admin) ──────────────────────────────────────────────────────
 
 bot.command("leave", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /leave [groupId]"); return; }
@@ -1570,7 +1497,7 @@ bot.command("leave", async (ctx) => {
 });
 
 bot.command("invite", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /invite [groupId]"); return; }
@@ -1581,7 +1508,7 @@ bot.command("invite", async (ctx) => {
 });
 
 bot.command("setadmin", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gid = parseUserId(args[0]);
   if (!gid) { await ctx.reply("Usage: /setadmin [groupId] [userId?]"); return; }
@@ -1597,6 +1524,20 @@ bot.command("setadmin", async (ctx) => {
     });
     await ctx.reply(`✅ Promoted <code>${targetId}</code> to admin in <code>${gid}</code>.`, { parse_mode: "HTML" });
   } catch (err: any) { await ctx.reply(`❌ Failed: ${err?.description || err?.message}`); }
+});
+
+// ── /adminpanel ───────────────────────────────────────────────────────────────
+
+bot.command("adminpanel", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const password = getAdminPanelPassword();
+  await ctx.reply(
+    `🔐 <b>Admin Panel Password</b>\n\n` +
+    `<code>${password}</code>\n\n` +
+    `Copy this password and paste it into the admin panel login screen.\n` +
+    `<i>Keep it private — it grants full admin access.</i>`,
+    { parse_mode: "HTML" },
+  );
 });
 
 // ── /edit (super admin) ───────────────────────────────────────────────────────
@@ -1659,7 +1600,7 @@ bot.command("cancel", async (ctx) => {
 // ── Token management ──────────────────────────────────────────────────────────
 
 bot.command("genkey", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   if (args.length === 0) {
     await ctx.reply("Usage: /genkey [time] [uses]\nExamples:\n/genkey 7d 1 — 7 day, 1 use\n/genkey perm 5 — permanent, 5 uses\n/genkey 0 1 — permanent, 1 use");
@@ -1677,7 +1618,7 @@ bot.command("genkey", async (ctx) => {
 });
 
 bot.command("keys", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const keys = await listAuthKeys();
   if (keys.length === 0) { await ctx.reply("No tokens yet."); return; }
   const now = Date.now();
@@ -1692,7 +1633,7 @@ bot.command("keys", async (ctx) => {
 });
 
 bot.command("rmkey", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   if (!args[0]) { await ctx.reply("Usage: /rmkey [key]"); return; }
   const ok = await removeAuthKey(args[0]);
@@ -1702,7 +1643,7 @@ bot.command("rmkey", async (ctx) => {
 // ── Log channel / group ───────────────────────────────────────────────────────
 
 bot.command("setlog", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   let targetId: number | null = null;
 
@@ -1753,13 +1694,13 @@ bot.command("setlog", async (ctx) => {
 });
 
 bot.command("clearlog", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   await setLogChannel(null);
   await ctx.reply("✅ Log channel disabled.");
 });
 
 bot.command("logstatus", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const ch = await getLogChannel();
   await ctx.reply(ch ? `📡 Log target: <code>${ch}</code>` : "📡 No log target set.", { parse_mode: "HTML" });
 });
@@ -1820,7 +1761,7 @@ bot.command("bans", async (ctx) => {
 // ── /gbans ────────────────────────────────────────────────────────────────────
 
 bot.command("gbans", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const [bans, mutes] = await Promise.all([listGlobalBans(), listGlobalMutes()]);
   const lines: string[] = [];
   if (bans.length > 0) {
@@ -1848,7 +1789,7 @@ bot.command("gbans", async (ctx) => {
 // ── /supers ───────────────────────────────────────────────────────────────────
 
 bot.command("supers", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const supers = await getSuperAdmins();
   const lines = [...supers].map((id) => `• <code>${id}</code>${isHardcodedSuper(id) ? " 🔒 hardcoded" : ""}`);
   await ctx.reply(`👑 <b>Super Admins (${supers.size})</b>\n${lines.join("\n")}`, { parse_mode: "HTML" });
@@ -1857,7 +1798,7 @@ bot.command("supers", async (ctx) => {
 // ── /ungban ───────────────────────────────────────────────────────────────────
 
 bot.command("ungban", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const id = parseUserId(args[0]);
   if (!id) { await ctx.reply("Usage: /ungban [userId]"); return; }
@@ -1880,7 +1821,7 @@ bot.command("ungban", async (ctx) => {
 // ── /gmute ────────────────────────────────────────────────────────────────────
 
 bot.command("gmute", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   let durationSec = 0, targetArgs = args;
   if (args.length >= 1) { const d = parseDuration(args[0]); if (d !== null) { durationSec = d; targetArgs = args.slice(1); } }
@@ -1909,7 +1850,7 @@ bot.command("gmute", async (ctx) => {
 // ── /ungmute ──────────────────────────────────────────────────────────────────
 
 bot.command("ungmute", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const id = parseUserId(args[0]);
   if (!id) { await ctx.reply("Usage: /ungmute [userId]"); return; }
@@ -1945,17 +1886,18 @@ bot.command("tag", async (ctx) => {
   const target = await resolveTarget(ctx, args);
   if (!target) { await ctx.reply("Usage: /tag [userId] [tagname] — or reply to a user with /tag [tagname]"); return; }
   const tagArg = args.find((a) => parseUserId(a) === null && a !== String(target.id));
-  if (!tagArg) { await ctx.reply("Usage: /tag [userId] [tagname]"); return; }
+  if (!tagArg) { await ctx.reply("Usage: /tag [userId] [tagname]\nReply to a user: /tag [tagname]\nUse /untag to remove."); return; }
+  // SET behaviour: clear existing tag and assign the new one
+  await clearUserTags(target.id);
   await addTag(target.id, tagArg, ctx.from!.id);
-  const allTags = await getUserTags(target.id);
-  await ctx.reply(`🏷️ Tag <b>${escapeHtml(tagArg)}</b> added to ${userLink(target.id, target.name)}.\nAll tags: ${allTags.map((t) => `<b>${escapeHtml(t)}</b>`).join(", ")}`, { parse_mode: "HTML" });
-  await logMod(ctx.api, `🏷️ <b>Tag added:</b> "${escapeHtml(tagArg)}" → ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+  await ctx.reply(`🏷️ Tag set: <b>${escapeHtml(tagArg)}</b> → ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
+  await logMod(ctx.api, `🏷️ <b>Tag set:</b> "${escapeHtml(tagArg)}" → ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
 // ── /broadcast ────────────────────────────────────────────────────────────────
 
 bot.command("broadcast", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const text = ctx.message?.text || "";
   const msg = text.replace(/^\/broadcast(@\w+)?\s*/i, "").trim();
   if (!msg) { await ctx.reply("Usage: /broadcast [message]"); return; }
@@ -2195,7 +2137,7 @@ bot.command("gbl", async (ctx) => {
 // ── /sync ─────────────────────────────────────────────────────────────────────
 
 bot.command("sync", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   await ctx.reply("🔄 Syncing all known groups…");
   const groups = await listGroups();
   let active = 0, failed = 0;
@@ -2221,7 +2163,7 @@ bot.command("sync", async (ctx) => {
 // ── /backup ───────────────────────────────────────────────────────────────────
 
 bot.command("backup", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const gidArg = parseUserId(args[0]);
   const chat = ctx.chat;
@@ -2246,7 +2188,7 @@ bot.command("backup", async (ctx) => {
 });
 
 bot.command("restore", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const text = ctx.message?.text || "";
   const raw = text.replace(/^\/restore(@\w+)?\s*/i, "").trim();
   if (!raw) { await ctx.reply("Usage: /restore [json] — paste the JSON from /backup"); return; }
@@ -2281,7 +2223,7 @@ function daysLeft(d: Date | null | undefined): string {
 }
 
 bot.command("get", async (ctx) => {
-  if (!requireSuperPrivate(ctx)) return;
+  if (!(await requireSuperAdmin(ctx))) return;
   const args = splitArgs(ctx.message?.text);
   const raw = args[0];
   if (!raw) { await ctx.reply("Usage: /get [groupId | userId | token_key]"); return; }
