@@ -1,5 +1,5 @@
-import { db, groupSettingsTable, groupsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, groupSettingsTable, groupsTable, joinMustTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 
 export type GroupSettings = typeof groupSettingsTable.$inferSelect;
 
@@ -71,12 +71,66 @@ export async function isGroupBanned(groupId: number): Promise<boolean> {
 }
 
 export async function listGroups(): Promise<
-  { groupId: number; title: string; banned: boolean }[]
+  { groupId: number; title: string; banned: boolean; authorized: boolean; authorizedKey: string | null; authorizedExpiresAt: Date | null }[]
 > {
   const rows = await db.select().from(groupsTable);
   return rows.map((r) => ({
     groupId: Number(r.groupId),
     title: r.title,
     banned: r.banned,
+    authorized: r.authorized,
+    authorizedKey: r.authorizedKey,
+    authorizedExpiresAt: r.authorizedExpiresAt,
+  }));
+}
+
+// ── JoinMust ──────────────────────────────────────────────────────────────────
+
+export async function addJoinMust(
+  groupId: number,
+  targetId: number,
+  targetUsername: string | null,
+): Promise<void> {
+  await db
+    .insert(joinMustTable)
+    .values({ groupId, targetId, targetUsername })
+    .onConflictDoUpdate({
+      target: [joinMustTable.groupId, joinMustTable.targetId],
+      set: { targetUsername },
+    });
+}
+
+export async function removeJoinMust(
+  groupId: number,
+  targetId: number,
+): Promise<boolean> {
+  const result = await db
+    .delete(joinMustTable)
+    .where(
+      and(
+        eq(joinMustTable.groupId, groupId),
+        eq(joinMustTable.targetId, targetId),
+      ),
+    )
+    .returning();
+  return result.length > 0;
+}
+
+export async function clearJoinMust(groupId: number): Promise<void> {
+  await db
+    .delete(joinMustTable)
+    .where(eq(joinMustTable.groupId, groupId));
+}
+
+export async function getJoinMustList(
+  groupId: number,
+): Promise<{ targetId: number; targetUsername: string | null }[]> {
+  const rows = await db
+    .select()
+    .from(joinMustTable)
+    .where(eq(joinMustTable.groupId, groupId));
+  return rows.map((r) => ({
+    targetId: Number(r.targetId),
+    targetUsername: r.targetUsername,
   }));
 }

@@ -1,5 +1,8 @@
 import type { Context } from "grammy";
-import { db, warningsTable, globalBansTable } from "@workspace/db";
+import {
+  db, warningsTable, globalBansTable, globalMutesTable,
+  restrictionsTable,
+} from "@workspace/db";
 import { and, eq, sql } from "drizzle-orm";
 import { scheduleTask } from "./scheduler";
 import { getGroupSettings } from "./settings";
@@ -166,6 +169,8 @@ export async function applyAutoActionIfNeeded(
   }
 }
 
+// ── Global bans ───────────────────────────────────────────────────────────────
+
 export async function setGlobalBan(
   userId: number,
   durationSec: number,
@@ -181,6 +186,14 @@ export async function setGlobalBan(
     });
 }
 
+export async function removeGlobalBan(userId: number): Promise<boolean> {
+  const result = await db
+    .delete(globalBansTable)
+    .where(eq(globalBansTable.userId, userId))
+    .returning();
+  return result.length > 0;
+}
+
 export async function isGloballyBanned(userId: number): Promise<boolean> {
   const row = await db
     .select()
@@ -194,4 +207,168 @@ export async function isGloballyBanned(userId: number): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+export async function getGlobalBanRow(userId: number): Promise<{ until: Date | null; reason: string } | null> {
+  const row = await db
+    .select()
+    .from(globalBansTable)
+    .where(eq(globalBansTable.userId, userId))
+    .limit(1);
+  if (row.length === 0) return null;
+  const r = row[0]!;
+  if (r.until && r.until.getTime() < Date.now()) {
+    await db.delete(globalBansTable).where(eq(globalBansTable.userId, userId));
+    return null;
+  }
+  return { until: r.until, reason: r.reason };
+}
+
+export async function listGlobalBans(): Promise<{ userId: number; until: Date | null; reason: string }[]> {
+  const rows = await db.select().from(globalBansTable);
+  const now = Date.now();
+  return rows
+    .filter((r) => !r.until || r.until.getTime() > now)
+    .map((r) => ({ userId: Number(r.userId), until: r.until, reason: r.reason }));
+}
+
+// ── Global mutes ──────────────────────────────────────────────────────────────
+
+export async function setGlobalMute(
+  userId: number,
+  durationSec: number,
+  reason = "",
+): Promise<void> {
+  const until = durationSec > 0 ? new Date(Date.now() + durationSec * 1000) : null;
+  await db
+    .insert(globalMutesTable)
+    .values({ userId, until, reason })
+    .onConflictDoUpdate({
+      target: globalMutesTable.userId,
+      set: { until, reason },
+    });
+}
+
+export async function removeGlobalMute(userId: number): Promise<boolean> {
+  const result = await db
+    .delete(globalMutesTable)
+    .where(eq(globalMutesTable.userId, userId))
+    .returning();
+  return result.length > 0;
+}
+
+export async function isGloballyMuted(userId: number): Promise<boolean> {
+  const row = await db
+    .select()
+    .from(globalMutesTable)
+    .where(eq(globalMutesTable.userId, userId))
+    .limit(1);
+  if (row.length === 0) return false;
+  const r = row[0]!;
+  if (r.until && r.until.getTime() < Date.now()) {
+    await db.delete(globalMutesTable).where(eq(globalMutesTable.userId, userId));
+    return false;
+  }
+  return true;
+}
+
+export async function getGlobalMuteRow(userId: number): Promise<{ until: Date | null; reason: string } | null> {
+  const row = await db
+    .select()
+    .from(globalMutesTable)
+    .where(eq(globalMutesTable.userId, userId))
+    .limit(1);
+  if (row.length === 0) return null;
+  const r = row[0]!;
+  if (r.until && r.until.getTime() < Date.now()) {
+    await db.delete(globalMutesTable).where(eq(globalMutesTable.userId, userId));
+    return null;
+  }
+  return { until: r.until, reason: r.reason };
+}
+
+export async function listGlobalMutes(): Promise<{ userId: number; until: Date | null; reason: string }[]> {
+  const rows = await db.select().from(globalMutesTable);
+  const now = Date.now();
+  return rows
+    .filter((r) => !r.until || r.until.getTime() > now)
+    .map((r) => ({ userId: Number(r.userId), until: r.until, reason: r.reason }));
+}
+
+// ── Per-group restriction tracking ────────────────────────────────────────────
+
+export async function trackRestriction(
+  groupId: number,
+  userId: number,
+  type: "ban" | "mute",
+  durationSec: number,
+): Promise<void> {
+  try {
+    const until = durationSec > 0 ? new Date(Date.now() + durationSec * 1000) : null;
+    await db
+      .insert(restrictionsTable)
+      .values({ groupId, userId, type, until })
+      .onConflictDoUpdate({
+        target: [restrictionsTable.groupId, restrictionsTable.userId, restrictionsTable.type],
+        set: { until, createdAt: new Date() },
+      });
+  } catch {
+    // non-critical
+  }
+}
+
+export async function removeRestriction(
+  groupId: number,
+  userId: number,
+  type: "ban" | "mute",
+): Promise<void> {
+  try {
+    await db
+      .delete(restrictionsTable)
+      .where(
+        and(
+          eq(restrictionsTable.groupId, groupId),
+          eq(restrictionsTable.userId, userId),
+          eq(restrictionsTable.type, type),
+        ),
+      );
+  } catch {
+    // non-critical
+  }
+}
+
+export async function countGroupRestrictions(
+  groupId: number,
+  type: "ban" | "mute",
+): Promise<number> {
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(restrictionsTable)
+    .where(
+      and(
+        eq(restrictionsTable.groupId, groupId),
+        eq(restrictionsTable.type, type),
+      ),
+    );
+  return rows.filter((r) => !r.until || r.until > now).length;
+}
+
+export async function listGroupRestrictions(
+  groupId: number,
+  type: "ban" | "mute",
+): Promise<{ userId: number; until: Date | null }[]> {
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(restrictionsTable)
+    .where(
+      and(
+        eq(restrictionsTable.groupId, groupId),
+        eq(restrictionsTable.type, type),
+      ),
+    );
+  return rows
+    .filter((r) => !r.until || r.until > now)
+    .map((r) => ({ userId: Number(r.userId), until: r.until }));
 }

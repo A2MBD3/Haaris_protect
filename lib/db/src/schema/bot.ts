@@ -46,6 +46,10 @@ export const groupSettingsTable = pgTable("group_settings", {
   floodActionDurationSec: integer("flood_action_duration_sec").notNull().default(300),
   welcomeEnabled: boolean("welcome_enabled").notNull().default(false),
   welcomeMessage: text("welcome_message"),
+  globalBlacklistEnabled: boolean("global_blacklist_enabled").notNull().default(false),
+  lockAction: text("lock_action").notNull().default("none"),
+  lockActionLimit: integer("lock_action_limit").notNull().default(3),
+  lockActionDurationSec: integer("lock_action_duration_sec").notNull().default(0),
 });
 
 export const authKeysTable = pgTable("auth_keys", {
@@ -129,6 +133,13 @@ export const globalBansTable = pgTable("global_bans", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const globalMutesTable = pgTable("global_mutes", {
+  userId: bigint("user_id", { mode: "number" }).primaryKey(),
+  until: timestamp("until", { withTimezone: true }),
+  reason: text("reason").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const scheduledTasksTable = pgTable("scheduled_tasks", {
   id: serial("id").primaryKey(),
   kind: text("kind").notNull(),
@@ -160,3 +171,57 @@ export const approvalsTable = pgTable(
   },
   (t) => [primaryKey({ columns: [t.groupId, t.userId] })],
 );
+
+export const tagsTable = pgTable(
+  "tags",
+  {
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    tag: text("tag").notNull(),
+    addedBy: bigint("added_by", { mode: "number" }).notNull(),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.tag] })],
+);
+
+export const restrictionsTable = pgTable(
+  "restrictions",
+  {
+    groupId: bigint("group_id", { mode: "number" }).notNull(),
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    type: text("type").notNull(),
+    until: timestamp("until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.userId, t.type] })],
+);
+
+export const userSeenTable = pgTable(
+  "user_seen",
+  {
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    groupId: bigint("group_id", { mode: "number" }).notNull(),
+    firstName: text("first_name").notNull().default(""),
+    lastName: text("last_name").notNull().default(""),
+    username: text("username"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.groupId] })],
+);
+
+export const joinMustTable = pgTable(
+  "join_must",
+  {
+    groupId: bigint("group_id", { mode: "number" }).notNull(),
+    targetId: bigint("target_id", { mode: "number" }).notNull(),
+    targetUsername: text("target_username"),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.targetId] })],
+);
+
+export const globalBlacklistTable = pgTable("global_blacklist", {
+  word: text("word").primaryKey(),
+  addedBy: bigint("added_by", { mode: "number" }).notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+});
