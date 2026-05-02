@@ -685,7 +685,7 @@ bot.command("ban", async (ctx) => {
   try {
     await banUser(ctx, ctx.chat!.id, target.id, durationSec);
     void trackRestriction(ctx.chat!.id, target.id, "ban", durationSec);
-    await ctx.reply(`🚫 ${userLink(target.id, target.name)} has been <b>banned</b> for <b>${formatDuration(durationSec)}</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`⛔ <b>Banned</b> · ${userLink(target.id, target.name)}\n⏳ Duration: <b>${formatDuration(durationSec)}</b>`, { parse_mode: "HTML" });
     await logMod(ctx.api, `⛔ <b>Ban:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)} — ${formatDuration(durationSec)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not ban: ${err?.description || err?.message}`); }
 });
@@ -700,7 +700,7 @@ bot.command("unban", async (ctx) => {
   try {
     await unbanUser(ctx, ctx.chat!.id, target.id);
     void removeRestriction(ctx.chat!.id, target.id, "ban");
-    await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>unbanned</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`✅ <b>Unbanned</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `✅ <b>Unban:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not unban: ${err?.description || err?.message}`); }
 });
@@ -716,7 +716,7 @@ bot.command("kick", async (ctx) => {
   try {
     await ctx.api.banChatMember(ctx.chat!.id, target.id);
     await ctx.api.unbanChatMember(ctx.chat!.id, target.id);
-    await ctx.reply(`👢 ${userLink(target.id, target.name)} has been <b>kicked</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`👢 <b>Kicked</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `👢 <b>Kick:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) from <code>${ctx.chat!.id}</code> by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not kick: ${err?.description || err?.message}`); }
 });
@@ -739,7 +739,7 @@ bot.command("promote", async (ctx) => {
       can_manage_video_chats: true,
       is_anonymous: false,
     });
-    await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>promoted to admin</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`👑 <b>Promoted to Admin</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `👑 <b>Promoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not promote: ${err?.description || err?.message}`); }
 });
@@ -761,7 +761,7 @@ bot.command("demote", async (ctx) => {
       can_manage_video_chats: false,
       is_anonymous: false,
     });
-    await ctx.reply(`✅ ${userLink(target.id, target.name)} has been <b>demoted</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`⬇️ <b>Demoted</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `⬇️ <b>Demoted:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not demote: ${err?.description || err?.message}`); }
 });
@@ -778,7 +778,7 @@ bot.command("mute", async (ctx) => {
   try {
     await muteUser(ctx, ctx.chat!.id, target.id, durationSec);
     void trackRestriction(ctx.chat!.id, target.id, "mute", durationSec);
-    await ctx.reply(`🔇 ${userLink(target.id, target.name)} has been <b>muted</b> for <b>${formatDuration(durationSec)}</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`🔇 <b>Muted</b> · ${userLink(target.id, target.name)}\n⏳ Duration: <b>${formatDuration(durationSec)}</b>`, { parse_mode: "HTML" });
     await logMod(ctx.api, `🔇 <b>Mute:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)} — ${formatDuration(durationSec)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not mute: ${err?.description || err?.message}`); }
 });
@@ -793,7 +793,7 @@ bot.command("unmute", async (ctx) => {
   try {
     await unmuteUser(ctx, ctx.chat!.id, target.id);
     void removeRestriction(ctx.chat!.id, target.id, "mute");
-    await ctx.reply(`🔈 ${userLink(target.id, target.name)} can now speak again.`, { parse_mode: "HTML" });
+    await ctx.reply(`🔈 <b>Unmuted</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `🔈 <b>Unmute:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   } catch (err: any) { await ctx.reply(`❌ Could not unmute: ${err?.description || err?.message}`); }
 });
@@ -810,11 +810,11 @@ bot.command("warn", async (ctx) => {
   const link = userLink(target.id, target.name);
   if (count >= settings.warnLimit) {
     const action = await applyAutoActionIfNeeded(ctx, ctx.chat!.id, target.id, count);
-    const extra = action ? ` Auto-action: <b>${action}</b>.` : "";
-    await ctx.reply(`⚠️ ${link} has reached the warn limit! (<b>${count}/${settings.warnLimit}</b>)${extra}`, { parse_mode: "HTML" });
+    const extra = action ? `\n➡️ Auto-action: <b>${action}</b>` : "";
+    await ctx.reply(`🚨 <b>Warn limit reached!</b> · ${link} · <b>${count}/${settings.warnLimit}</b>${extra}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `⚠️ <b>Warn limit:</b> ${link} (${count}/${settings.warnLimit}) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}${action ? ` → ${action}` : ""}`);
   } else {
-    await ctx.reply(`⚠️ ${link}, you have been warned — <b>${count}/${settings.warnLimit}</b>.`, { parse_mode: "HTML" });
+    await ctx.reply(`⚠️ <b>Warning ${count}/${settings.warnLimit}</b> · ${link}`, { parse_mode: "HTML" });
     await logMod(ctx.api, `⚠️ <b>Warn:</b> ${link} (${count}/${settings.warnLimit}) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
   }
 });
@@ -827,7 +827,7 @@ bot.command("unwarn", async (ctx) => {
   if (!target) { await ctx.reply("Usage: /unwarn — reply to user, or /unwarn [userid]"); return; }
   const count = await removeOneWarning(ctx.chat!.id, target.id);
   const settings = await getGroupSettings(ctx.chat!.id);
-  await ctx.reply(`✅ One warning removed from ${userLink(target.id, target.name)}. Now at <b>${count}/${settings.warnLimit}</b>.`, { parse_mode: "HTML" });
+  await ctx.reply(`✅ <b>Warning removed</b> · ${userLink(target.id, target.name)}\n📊 Now: <b>${count}/${settings.warnLimit}</b>`, { parse_mode: "HTML" });
 });
 
 // ── /resetwarns ───────────────────────────────────────────────────────────────
@@ -837,7 +837,7 @@ bot.command("resetwarns", async (ctx) => {
   const target = await resolveTarget(ctx, splitArgs(ctx.message?.text));
   if (!target) { await ctx.reply("Usage: /resetwarns — reply to user, or /resetwarns [userid]"); return; }
   await resetWarnings(ctx.chat!.id, target.id);
-  await ctx.reply(`✅ All warnings cleared for ${userLink(target.id, target.name)}.`, { parse_mode: "HTML" });
+  await ctx.reply(`✅ <b>Warnings cleared</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
 });
 
 // ── /warns — check own warns ──────────────────────────────────────────────────
@@ -1020,7 +1020,7 @@ bot.command("lock", async (ctx) => {
   const type = args[0]?.toLowerCase() as LockType | undefined;
   if (!type || !LOCK_TYPES.includes(type)) { await ctx.reply(`Usage: /lock [type]\nTypes: ${LOCK_TYPES.join(", ")}`); return; }
   await addLock(ctx.chat!.id, type);
-  await ctx.reply(`🔒 <b>${type}</b> locked.`, { parse_mode: "HTML" });
+  await ctx.reply(`🔒 <b>Locked</b> · <code>${type}</code>`, { parse_mode: "HTML" });
   await logSettings(ctx.api, `🔒 <b>Lock added:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
@@ -1031,7 +1031,7 @@ bot.command("unlock", async (ctx) => {
   if (!type || !LOCK_TYPES.includes(type)) { await ctx.reply(`Usage: /unlock [type]\nTypes: ${LOCK_TYPES.join(", ")}`); return; }
   const ok = await removeLock(ctx.chat!.id, type);
   if (ok) await logSettings(ctx.api, `🔓 <b>Lock removed:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
-  await ctx.reply(ok ? `🔓 <b>${type}</b> unlocked.` : `<b>${type}</b> was not locked.`, { parse_mode: "HTML" });
+  await ctx.reply(ok ? `🔓 <b>Unlocked</b> · <code>${type}</code>` : `❌ <code>${type}</code> was not locked.`, { parse_mode: "HTML" });
 });
 
 bot.command("locktypes", async (ctx) => {
@@ -1049,7 +1049,7 @@ bot.command("filter", async (ctx) => {
   const m = rest.match(/^(\S+)\s+([\s\S]+)$/);
   if (!m) { await ctx.reply("Usage: /filter [keyword] [reply]\nExample: /filter hello Hello there!"); return; }
   await addFilter(ctx.chat!.id, m[1]!, m[2]!);
-  await ctx.reply(`✅ Filter added for "<b>${escapeHtml(m[1]!)}</b>".`, { parse_mode: "HTML" });
+  await ctx.reply(`✅ <b>Filter set</b> · keyword: <code>${escapeHtml(m[1]!)}</code>`, { parse_mode: "HTML" });
 });
 
 bot.command("filters", async (ctx) => {
@@ -1065,7 +1065,7 @@ bot.command("rmfilter", async (ctx) => {
   const args = splitArgs(ctx.message?.text);
   if (!args[0]) { await ctx.reply("Usage: /rmfilter [keyword]"); return; }
   const ok = await removeFilter(ctx.chat!.id, args[0]);
-  await ctx.reply(ok ? `✅ Filter "<b>${escapeHtml(args[0])}</b>" removed.` : "❌ Filter not found.", { parse_mode: "HTML" });
+  await ctx.reply(ok ? `✅ <b>Filter removed</b> · <code>${escapeHtml(args[0])}</code>` : `❌ Filter not found: <code>${escapeHtml(args[0])}</code>`, { parse_mode: "HTML" });
 });
 
 // ── Blacklist ─────────────────────────────────────────────────────────────────
@@ -1075,7 +1075,7 @@ bot.command("bl", async (ctx) => {
   const args = splitArgs(ctx.message?.text);
   if (!args[0]) { await ctx.reply("Usage: /bl [word]"); return; }
   await addBlacklistWord(ctx.chat!.id, args[0]);
-  await ctx.reply(`🚫 "<b>${escapeHtml(args[0])}</b>" added to blacklist.`, { parse_mode: "HTML" });
+  await ctx.reply(`🚫 <b>Blacklisted</b> · <code>${escapeHtml(args[0])}</code>`, { parse_mode: "HTML" });
 });
 
 bot.command("rmbl", async (ctx) => {
@@ -1083,7 +1083,7 @@ bot.command("rmbl", async (ctx) => {
   const args = splitArgs(ctx.message?.text);
   if (!args[0]) { await ctx.reply("Usage: /rmbl [word]"); return; }
   const ok = await removeBlacklistWord(ctx.chat!.id, args[0]);
-  await ctx.reply(ok ? `✅ "<b>${escapeHtml(args[0])}</b>" removed from blacklist.` : "❌ Word not in blacklist.", { parse_mode: "HTML" });
+  await ctx.reply(ok ? `✅ <b>Removed from blacklist</b> · <code>${escapeHtml(args[0])}</code>` : `❌ Not in blacklist: <code>${escapeHtml(args[0])}</code>`, { parse_mode: "HTML" });
 });
 
 bot.command("blacklisted", async (ctx) => {
@@ -1127,7 +1127,7 @@ bot.command("save", async (ctx) => {
   const m = rest.match(/^(\S+)\s+([\s\S]+)$/);
   if (!m) { await ctx.reply("Usage: /save [notename] [content]\nRetrieve with: #notename"); return; }
   await saveNote(ctx.chat!.id, m[1]!, m[2]!, ctx.from!.id);
-  await ctx.reply(`✅ Note "<b>${escapeHtml(m[1]!)}</b>" saved. Retrieve with: <code>#${m[1]!.toLowerCase()}</code>`, { parse_mode: "HTML" });
+  await ctx.reply(`📓 <b>Note saved</b> · <code>#${m[1]!.toLowerCase()}</code>`, { parse_mode: "HTML" });
 });
 
 bot.command("rmnote", async (ctx) => {
@@ -1135,7 +1135,7 @@ bot.command("rmnote", async (ctx) => {
   const args = splitArgs(ctx.message?.text);
   if (!args[0]) { await ctx.reply("Usage: /rmnote [notename]"); return; }
   const ok = await removeNote(ctx.chat!.id, args[0]);
-  await ctx.reply(ok ? `✅ Note "<b>${escapeHtml(args[0])}</b>" removed.` : "❌ Note not found.", { parse_mode: "HTML" });
+  await ctx.reply(ok ? `✅ <b>Note deleted</b> · <code>${escapeHtml(args[0])}</code>` : `❌ Note not found: <code>${escapeHtml(args[0])}</code>`, { parse_mode: "HTML" });
 });
 
 bot.command("notes", async (ctx) => {
@@ -1189,7 +1189,7 @@ bot.command("approve", async (ctx) => {
   const target = await resolveTarget(ctx, splitArgs(ctx.message?.text));
   if (!target) { await ctx.reply("Usage: /approve — reply to a user, or /approve [userid]"); return; }
   await approveUser(ctx.chat!.id, target.id, ctx.from!.id);
-  await ctx.reply(`✅ ${userLink(target.id, target.name)} is now <b>approved</b>. Locks, blacklist, and antiflood won't apply to them.`, { parse_mode: "HTML" });
+  await ctx.reply(`✅ <b>Approved</b> · ${userLink(target.id, target.name)}\n<i>Bypasses locks, blacklist &amp; antiflood.</i>`, { parse_mode: "HTML" });
   await logMod(ctx.api, `✅ <b>Approved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });
 
@@ -1199,7 +1199,7 @@ bot.command("unapprove", async (ctx) => {
   if (!target) { await ctx.reply("Usage: /unapprove — reply to a user, or /unapprove [userid]"); return; }
   const ok = await unapproveUser(ctx.chat!.id, target.id);
   await ctx.reply(ok
-    ? `✅ ${userLink(target.id, target.name)} is now <b>unapproved</b>. Normal rules apply again.`
+    ? `🔓 <b>Approval revoked</b> · ${userLink(target.id, target.name)}\n<i>Normal rules apply again.</i>`
     : `❌ ${userLink(target.id, target.name)} was not approved.`, { parse_mode: "HTML" });
   if (ok) await logMod(ctx.api, `❌ <b>Unapproved:</b> ${userLink(target.id, target.name)} (<code>${target.id}</code>) in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
 });

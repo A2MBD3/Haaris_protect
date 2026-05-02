@@ -17,15 +17,10 @@ const CONFIG_KEYS: Record<string, string> = {
   settings:   "log_topic_settings",
 };
 
-// Simple in-memory cache
 const cache: Record<string, number | null | undefined> = {};
 
 async function getConfig(key: string): Promise<string | null> {
-  const rows = await db
-    .select()
-    .from(botConfigTable)
-    .where(eq(botConfigTable.key, key))
-    .limit(1);
+  const rows = await db.select().from(botConfigTable).where(eq(botConfigTable.key, key)).limit(1);
   return rows[0]?.value ?? null;
 }
 
@@ -33,9 +28,7 @@ async function setConfig(key: string, value: string | null): Promise<void> {
   if (value === null) {
     await db.delete(botConfigTable).where(eq(botConfigTable.key, key));
   } else {
-    await db
-      .insert(botConfigTable)
-      .values({ key, value })
+    await db.insert(botConfigTable).values({ key, value })
       .onConflictDoUpdate({ target: botConfigTable.key, set: { value } });
   }
 }
@@ -50,9 +43,7 @@ export async function getLogChannel(): Promise<number | null> {
 export async function setLogChannel(channelId: number | null): Promise<void> {
   await setConfig(CONFIG_KEYS["channel"]!, channelId !== null ? String(channelId) : null);
   cache["channel"] = channelId;
-  for (const cat of ALL_CATEGORIES) {
-    delete cache[cat];
-  }
+  for (const cat of ALL_CATEGORIES) delete cache[cat];
 }
 
 async function getTopicId(category: LogCategory): Promise<number | null> {
@@ -68,36 +59,57 @@ async function setTopicId(category: LogCategory, threadId: number | null): Promi
 }
 
 const TOPIC_CONFIG: Record<LogCategory, { name: string; icon_color: number }> = {
-  general:    { name: "🌐 General",    icon_color: 0x6FB9F0 }, // blue
-  moderation: { name: "⚔️ Moderation", icon_color: 0xFF5733 }, // red-orange
-  security:   { name: "🛡️ Security",   icon_color: 0xFFD700 }, // gold
-  filter:     { name: "🔍 Filter",     icon_color: 0xE65BCA }, // pink
-  captcha:    { name: "🤖 Captcha",    icon_color: 0x40C057 }, // green
-  settings:   { name: "⚙️ Settings",   icon_color: 0x9B59B6 }, // purple
+  general:    { name: "🌐 General",    icon_color: 0x6FB9F0 },
+  moderation: { name: "⚔️ Moderation", icon_color: 0xFF5733 },
+  security:   { name: "🛡️ Security",   icon_color: 0xFFD700 },
+  filter:     { name: "🔍 Filter",     icon_color: 0xE65BCA },
+  captcha:    { name: "🤖 Captcha",    icon_color: 0x40C057 },
+  settings:   { name: "⚙️ Settings",   icon_color: 0x9B59B6 },
 };
 
-/**
- * Initialise log topics for a forum supergroup.
- * Auto-creates any missing topics; skips categories that already have a topic stored.
- * Returns true if it's a forum group.
- */
+// ── In-memory log ring buffer ─────────────────────────────────────────────────
+
+export interface LogEntry {
+  id: number;
+  ts: number;
+  category: LogCategory;
+  text: string;
+}
+
+const LOG_BUFFER_MAX = 600;
+const _logBuf: LogEntry[] = [];
+let _logSeq = 0;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<a[^>]*href="tg:\/\/user\?id=(\d+)"[^>]*>([^<]+)<\/a>/g, "$2")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .trim();
+}
+
+function pushLog(category: LogCategory, html: string): void {
+  _logBuf.push({ id: ++_logSeq, ts: Date.now(), category, text: stripHtml(html) });
+  if (_logBuf.length > LOG_BUFFER_MAX) _logBuf.shift();
+}
+
+export function getRecentLogs(limit = 150, category?: LogCategory): LogEntry[] {
+  const src = category ? _logBuf.filter(e => e.category === category) : [..._logBuf];
+  return src.slice(-limit).reverse();
+}
+
+// ── Topic management ──────────────────────────────────────────────────────────
+
 export async function initLogTopics(api: Api, channelId: number): Promise<boolean> {
   let chat: any;
-  try {
-    chat = await api.getChat(channelId);
-  } catch {
-    return false;
-  }
+  try { chat = await api.getChat(channelId); } catch { return false; }
   if (!chat.is_forum) return false;
-
   for (const category of ALL_CATEGORIES) {
     const existing = await getTopicId(category);
     if (existing) continue;
     try {
       const cfg = TOPIC_CONFIG[category];
-      const topic = await (api as any).createForumTopic(channelId, cfg.name, {
-        icon_color: cfg.icon_color,
-      });
+      const topic = await (api as any).createForumTopic(channelId, cfg.name, { icon_color: cfg.icon_color });
       await setTopicId(category, topic.message_thread_id);
       logger.info({ category, threadId: topic.message_thread_id }, "Log topic created");
     } catch (err) {
@@ -107,55 +119,35 @@ export async function initLogTopics(api: Api, channelId: number): Promise<boolea
   return true;
 }
 
-/**
- * Ensure all topics exist — creates only the ones that are missing.
- * Called automatically on every logAction so topics are always there.
- */
 async function ensureTopics(api: Api, channelId: number): Promise<void> {
   let chat: any;
   try { chat = await api.getChat(channelId); } catch { return; }
   if (!chat.is_forum) return;
-
   for (const category of ALL_CATEGORIES) {
     const existing = await getTopicId(category);
     if (existing) continue;
     try {
       const cfg = TOPIC_CONFIG[category];
-      const topic = await (api as any).createForumTopic(channelId, cfg.name, {
-        icon_color: cfg.icon_color,
-      });
+      const topic = await (api as any).createForumTopic(channelId, cfg.name, { icon_color: cfg.icon_color });
       await setTopicId(category, topic.message_thread_id);
-      logger.info({ category, threadId: topic.message_thread_id }, "Log topic auto-created");
     } catch (err) {
       logger.warn({ err, category }, "Failed to auto-create log topic");
     }
   }
 }
 
-/**
- * Force-recreate all topics.
- */
 export async function resetAndRecreateTopics(api: Api, channelId: number): Promise<boolean> {
-  for (const cat of ALL_CATEGORIES) {
-    await setTopicId(cat, null);
-  }
+  for (const cat of ALL_CATEGORIES) await setTopicId(cat, null);
   return initLogTopics(api, channelId);
 }
 
-/**
- * Log a message to the appropriate topic (or flat stream if no topics).
- * Auto-creates missing topics if the target is a forum group.
- */
-export async function logAction(
-  api: Api,
-  message: string,
-  category: LogCategory = "general",
-): Promise<void> {
+export async function logAction(api: Api, message: string, category: LogCategory = "general"): Promise<void> {
+  pushLog(category, message);
+
   const channel = await getLogChannel();
   if (!channel) return;
 
   await ensureTopics(api, channel);
-
   const threadId = await getTopicId(category);
 
   try {
@@ -169,10 +161,9 @@ export async function logAction(
   }
 }
 
-/** Convenience wrappers */
-export const logGeneral    = (api: Api, msg: string) => logAction(api, msg, "general");
-export const logMod        = (api: Api, msg: string) => logAction(api, msg, "moderation");
-export const logSecurity   = (api: Api, msg: string) => logAction(api, msg, "security");
-export const logFilter     = (api: Api, msg: string) => logAction(api, msg, "filter");
-export const logCaptcha    = (api: Api, msg: string) => logAction(api, msg, "captcha");
-export const logSettings   = (api: Api, msg: string) => logAction(api, msg, "settings");
+export const logGeneral  = (api: Api, msg: string) => logAction(api, msg, "general");
+export const logMod      = (api: Api, msg: string) => logAction(api, msg, "moderation");
+export const logSecurity = (api: Api, msg: string) => logAction(api, msg, "security");
+export const logFilter   = (api: Api, msg: string) => logAction(api, msg, "filter");
+export const logCaptcha  = (api: Api, msg: string) => logAction(api, msg, "captcha");
+export const logSettings = (api: Api, msg: string) => logAction(api, msg, "settings");
