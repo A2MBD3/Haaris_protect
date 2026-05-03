@@ -12,8 +12,8 @@ interface Group {
   authorizedKey: string | null; authorizedExpiresAt: string | null; settings: Record<string, unknown>;
 }
 interface AuthKey { key: string; expiresAt: string | null; maxUses: number; usedCount: number; createdBy: number; createdAt: string; }
-interface SuperAdmin { id: number; hardcoded: boolean; }
-interface GlobalEntry { userId: number; until: string | null; reason: string; }
+interface SuperAdmin { id: number; hardcoded: boolean; displayName?: string; }
+interface GlobalEntry { userId: number; until: string | null; reason: string; displayName?: string; }
 interface LogEntry { id: number; ts: number; category: string; text: string; }
 interface FilterItem { word: string; reply: string; }
 interface NoteItem { name: string; content: string; }
@@ -728,7 +728,7 @@ function Groups({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
 function Keys({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: string, t?: "ok" | "err") => void }) {
   const [keys, setKeys] = useState<AuthKey[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ maxUses: 1, expiresInDays: 30 });
+  const [form, setForm] = useState({ maxUses: 1, expiresInDays: 0 });
   const [creating, setCreating] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
 
@@ -763,8 +763,8 @@ function Keys({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: strin
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <p className="text-sm font-semibold text-foreground">Generate New Key</p>
         <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1"><label className="text-xs text-muted-foreground">Max Uses</label><Input type="number" min={1} value={form.maxUses} onChange={e => setForm(f => ({ ...f, maxUses: parseInt(e.target.value) || 1 }))} /></div>
-          <div className="space-y-1"><label className="text-xs text-muted-foreground">Expires (days)</label><Input type="number" min={1} value={form.expiresInDays} onChange={e => setForm(f => ({ ...f, expiresInDays: parseInt(e.target.value) || 30 }))} /></div>
+          <div className="space-y-1"><label className="text-xs text-muted-foreground">Max Uses</label><Input type="number" min={1} value={form.maxUses} onChange={e => setForm(f => ({ ...f, maxUses: Math.max(1, parseInt(e.target.value) || 1) }))} /></div>
+          <div className="space-y-1"><label className="text-xs text-muted-foreground">Expires (days, 0 = permanent)</label><Input type="number" min={0} value={form.expiresInDays} onChange={e => { const v = parseInt(e.target.value); setForm(f => ({ ...f, expiresInDays: isNaN(v) || v < 0 ? 0 : v })); }} /></div>
         </div>
         <Btn onClick={create} loading={creating}>🔑 Generate Key</Btn>
         {newKey && (
@@ -848,8 +848,9 @@ function Admins({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: str
               <div key={a.id} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
                 <div className="w-9 h-9 bg-yellow-500/10 rounded-lg flex items-center justify-center text-lg flex-shrink-0">👑</div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <code className="text-sm font-mono text-foreground select-all">{a.id}</code>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {a.displayName && <span className="text-sm font-semibold text-foreground">{a.displayName}</span>}
+                    <code className="text-xs font-mono text-muted-foreground select-all bg-muted px-1.5 py-0.5 rounded">{a.id}</code>
                     {a.hardcoded && <Badge color="yellow">🔒 Hardcoded</Badge>}
                   </div>
                 </div>
@@ -923,7 +924,10 @@ function Security({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: s
               <div key={entry.userId} className={`bg-card border rounded-xl p-4 flex items-center gap-3 ${tab === "bans" ? "border-red-500/20" : "border-orange-500/20"}`}>
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm flex-shrink-0 ${tab === "bans" ? "bg-red-500/10" : "bg-orange-500/10"}`}>{tab === "bans" ? "⛔" : "🔇"}</div>
                 <div className="flex-1 min-w-0">
-                  <code className="text-sm font-mono text-foreground select-all">{entry.userId}</code>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {entry.displayName && <span className="text-sm font-semibold text-foreground">{entry.displayName}</span>}
+                    <code className="text-xs font-mono text-muted-foreground select-all bg-muted px-1.5 py-0.5 rounded">{entry.userId}</code>
+                  </div>
                   {entry.reason && <p className="text-xs text-muted-foreground mt-0.5 truncate">"{entry.reason}"</p>}
                   <p className="text-xs text-muted-foreground">{entry.until ? `Until: ${new Date(entry.until).toLocaleDateString()}` : "⚠️ Permanent"}</p>
                 </div>

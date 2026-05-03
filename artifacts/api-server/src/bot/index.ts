@@ -54,13 +54,32 @@ import {
 import { parseDuration, parseUserId, formatDuration, escapeHtml, fmtAdmin, fmtGroupCtx, fmtGroupById, fmtUser } from "./utils";
 import { addTag, getUserTags, clearUserTags } from "./tags";
 import { upsertUserSeen, getUserActivity } from "./activity";
-import { db, warningsTable, authKeysTable } from "@workspace/db";
+import { db, warningsTable, authKeysTable, botConfigTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
+let _adminPasswordOverride: string | null = null;
+
 export function getAdminPanelPassword(): string {
+  if (_adminPasswordOverride !== null) return _adminPasswordOverride;
   const tok = process.env["TELEGRAM_BOT_TOKEN"] || "";
   return createHash("sha256").update("haaris:admin:" + tok).digest("hex").slice(0, 24);
+}
+
+export async function loadAdminPasswordOverride(): Promise<void> {
+  const rows = await db.select().from(botConfigTable)
+    .where(eq(botConfigTable.key, "admin_panel_password_override")).limit(1);
+  _adminPasswordOverride = rows[0]?.value ?? null;
+}
+
+export async function setAdminPanelPassword(newPwd: string | null): Promise<void> {
+  if (newPwd === null) {
+    await db.delete(botConfigTable).where(eq(botConfigTable.key, "admin_panel_password_override"));
+  } else {
+    await db.insert(botConfigTable).values({ key: "admin_panel_password_override", value: newPwd })
+      .onConflictDoUpdate({ target: botConfigTable.key, set: { value: newPwd } });
+  }
+  _adminPasswordOverride = newPwd;
 }
 
 const token = process.env["TELEGRAM_BOT_TOKEN"];
@@ -2444,6 +2463,36 @@ bot.command("get", async (ctx) => {
   await ctx.reply(`❌ Unrecognised chat type: ${type}`);
 });
 
+// ── /resetpass ────────────────────────────────────────────────────────────────
+
+bot.command("resetpass", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const newPwd = Array.from({ length: 20 }, () => charset[Math.floor(Math.random() * charset.length)]).join("");
+  await setAdminPanelPassword(newPwd);
+  const who = ctx.from ? userLink(ctx.from.id, ctx.from.first_name) : "unknown";
+  await logSettings(ctx.api, `🔐 Admin panel password reset by ${who}`);
+  await ctx.reply(
+    `🔐 <b>Admin Panel Password Reset</b>\n\n` +
+    `New password:\n<code>${newPwd}</code>\n\n` +
+    `✅ All existing sessions have been logged out.\n` +
+    `⚠️ Share this only with trusted admins.\n\n` +
+    `To restore the default password, use /resetpass default`,
+    { parse_mode: "HTML" },
+  );
+});
+
+bot.command("resetpassdefault", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  await setAdminPanelPassword(null);
+  const who = ctx.from ? userLink(ctx.from.id, ctx.from.first_name) : "unknown";
+  await logSettings(ctx.api, `🔐 Admin panel password reverted to default by ${who}`);
+  await ctx.reply(
+    `✅ <b>Password Reset to Default</b>\n\nThe admin panel password has been reverted to the default (derived from bot token). All custom sessions have been logged out.`,
+    { parse_mode: "HTML" },
+  );
+});
+
 // ── Error handler ─────────────────────────────────────────────────────────────
 
 bot.catch((err) => {
@@ -2456,6 +2505,7 @@ bot.catch((err) => {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 export async function startBot(): Promise<void> {
+  await loadAdminPasswordOverride();
   await ensureHardcodedSupers();
   startScheduler(bot);
   startCaptchaWatcher(bot);

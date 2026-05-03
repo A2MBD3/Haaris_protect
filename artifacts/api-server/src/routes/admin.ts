@@ -7,6 +7,25 @@ import { createAuthKey, listAuthKeys, removeAuthKey, consumeAuthKey, authorizeGr
 import { listFilters, addFilter, removeFilter, listBlacklist, addBlacklistWord, removeBlacklistWord } from "../bot/content";
 import { listNotes, saveNote, removeNote } from "../bot/notes";
 import { getRecentLogs, type LogCategory } from "../bot/logging";
+import { db, userSeenTable } from "@workspace/db";
+import { inArray } from "drizzle-orm";
+
+async function resolveUserNames(ids: number[]): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await db.select({
+    userId: userSeenTable.userId,
+    firstName: userSeenTable.firstName,
+    lastName: userSeenTable.lastName,
+    username: userSeenTable.username,
+  }).from(userSeenTable).where(inArray(userSeenTable.userId, ids));
+  const map = new Map<number, string>();
+  for (const r of rows) {
+    const full = [r.firstName, r.lastName].filter(Boolean).join(" ").trim();
+    const name = full || (r.username ? `@${r.username}` : null);
+    if (name) map.set(Number(r.userId), name);
+  }
+  return map;
+}
 
 const router = Router();
 const serverStart = Date.now();
@@ -206,7 +225,9 @@ router.delete("/keys/:key", async (req, res) => {
 router.get("/supers", async (_req, res) => {
   try {
     const supers = await getSuperAdmins();
-    res.json([...supers].map(id => ({ id, hardcoded: isHardcodedSuper(id) })));
+    const ids = [...supers];
+    const names = await resolveUserNames(ids);
+    res.json(ids.map(id => ({ id, hardcoded: isHardcodedSuper(id), displayName: names.get(id) ?? null })));
   } catch { res.status(500).json({ error: "Failed" }); }
 });
 
@@ -231,7 +252,11 @@ router.delete("/supers/:id", async (req, res) => {
 // ── Global Bans ───────────────────────────────────────────────────────────────
 
 router.get("/gbans", async (_req, res) => {
-  try { res.json(await listGlobalBans()); } catch { res.status(500).json({ error: "Failed" }); }
+  try {
+    const bans = await listGlobalBans();
+    const names = await resolveUserNames(bans.map(b => b.userId));
+    res.json(bans.map(b => ({ ...b, displayName: names.get(b.userId) ?? null })));
+  } catch { res.status(500).json({ error: "Failed" }); }
 });
 router.post("/gbans", async (req, res) => {
   try {
@@ -249,7 +274,11 @@ router.delete("/gbans/:id", async (req, res) => {
 // ── Global Mutes ──────────────────────────────────────────────────────────────
 
 router.get("/gmutes", async (_req, res) => {
-  try { res.json(await listGlobalMutes()); } catch { res.status(500).json({ error: "Failed" }); }
+  try {
+    const mutes = await listGlobalMutes();
+    const names = await resolveUserNames(mutes.map(m => m.userId));
+    res.json(mutes.map(m => ({ ...m, displayName: names.get(m.userId) ?? null })));
+  } catch { res.status(500).json({ error: "Failed" }); }
 });
 router.post("/gmutes", async (req, res) => {
   try {
