@@ -1329,13 +1329,13 @@ bot.command("help", async (ctx) => {
       await ctx.reply(
         `👑 <b>Super Admin Commands</b>\n\n` +
         `<b>🔑 Keys:</b> /genkey · /keys · /rmkey\n` +
-        `<b>📋 Groups:</b> /groups · /bangroup · /unbangroup · /leave · /invite · /destroy · /backup · /restore · /sync\n` +
+        `<b>📋 Groups:</b> /groups · /bangroup · /unbangroup · /leave · /invite · /destroy · /backup · /restore · /sync · /resync\n` +
         `<b>🌍 Global mod:</b> /gban · /ungban · /gmute · /ungmute · /gbans · /resetrestriction\n` +
         `<b>📢 Broadcast:</b> /broadcast\n` +
         `<b>👑 Supers:</b> /addsuper · /rmsuper · /supers · /setadmin\n` +
         `<b>📡 Logging:</b> /setlog · /clearlog · /logstatus\n` +
         `<b>🔍 Info:</b> /get · /edit\n` +
-        `<b>🔐 Panel:</b> /adminpanel`,
+        `<b>🔐 Panel:</b> /adminpanel · /resetpass · /resetpassdefault`,
         { parse_mode: "HTML" },
       );
     } else {
@@ -1351,7 +1351,7 @@ bot.command("help", async (ctx) => {
     if (isAdmin) {
       await ctx.reply(
         `🤖 <b>@${botUsername} — Admin Commands</b>\n\n` +
-        `<b>👮 Mod:</b> /ban · /unban · /kick · /mute · /unmute · /warn · /unwarn · /resetwarns · /del · /pin\n` +
+        `<b>👮 Mod:</b> /ban · /unban · /kick · /mute · /unmute · /promote · /demote · /warn · /unwarn · /resetwarns · /del · /pin\n` +
         `<b>🏷️ Tags:</b> /tag · /untag · /tags\n` +
         `<b>🌊 Flood:</b> /flood · /floodaction\n` +
         `<b>🔒 Locks:</b> /lock · /unlock · /locktypes · /lockaction\n` +
@@ -1361,7 +1361,7 @@ bot.command("help", async (ctx) => {
         `<b>👋 Welcome:</b> /setwelcome · /resetwelcome · /welcome\n` +
         `<b>🚪 Joinmust:</b> /joinmust · /rmjoinmust\n` +
         `<b>✅ Approvals:</b> /approve · /unapprove · /approved · /unapproveall\n` +
-        `<b>🛡️ Protection:</b> /captcha · /antibot · /antichannel\n` +
+        `<b>⚙️ Settings:</b> /warnsetting · /captcha · /antibot · /antichannel\n` +
         `<b>🔑 Auth:</b> /redeem\n` +
         `<b>ℹ️ Info:</b> /info · /id · /me · /warns · /bans · /approval · /backup`,
         { parse_mode: "HTML" },
@@ -1928,7 +1928,7 @@ bot.command("ungmute", async (ctx) => {
   if (ok) await logSecurity(ctx.api, `✅ <b>Global mute removed:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
 });
 
-// ── /tag ──────────────────────────────────────────────────────────────────────
+// ── /tag · /untag · /tags ─────────────────────────────────────────────────────
 
 bot.command("tag", async (ctx) => {
   if (!(await requireGroupAdmin(ctx))) return;
@@ -1942,6 +1942,29 @@ bot.command("tag", async (ctx) => {
   await addTag(target.id, tagArg, ctx.from!.id);
   await ctx.reply(`🏷️ Tag set: <b>${escapeHtml(tagArg)}</b> → ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
   await logMod(ctx.api, `🏷️ <b>Tag set:</b> "${escapeHtml(tagArg)}" → ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("untag", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const target = await resolveTarget(ctx, args);
+  if (!target) { await ctx.reply("Usage: /untag — reply to a user, or /untag [userId]"); return; }
+  await clearUserTags(target.id);
+  await ctx.reply(`🗑️ <b>Tags cleared</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
+  await logMod(ctx.api, `🗑️ <b>Tags cleared:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("tags", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const target = await resolveTarget(ctx, args);
+  if (!target) { await ctx.reply("Usage: /tags — reply to a user, or /tags [userId]"); return; }
+  const tags = await getUserTags(target.id);
+  if (tags.length === 0) {
+    await ctx.reply(`🏷️ No tags set for ${userLink(target.id, target.name)}.`, { parse_mode: "HTML" });
+    return;
+  }
+  await ctx.reply(`🏷️ <b>Tags for ${userLink(target.id, target.name)}</b>\n${tags.map(t => `• ${escapeHtml(t)}`).join("\n")}`, { parse_mode: "HTML" });
 });
 
 // ── /broadcast ────────────────────────────────────────────────────────────────
