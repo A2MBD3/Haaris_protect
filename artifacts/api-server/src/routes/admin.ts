@@ -6,6 +6,7 @@ import { getSuperAdmins, addSuperAdmin, removeSuperAdmin, isHardcodedSuper } fro
 import { createAuthKey, listAuthKeys, removeAuthKey, consumeAuthKey, authorizeGroup, deauthorizeGroup } from "../bot/auth";
 import { listFilters, addFilter, removeFilter, listBlacklist, addBlacklistWord, removeBlacklistWord } from "../bot/content";
 import { listNotes, saveNote, removeNote } from "../bot/notes";
+import { addJoinMust, removeJoinMust, getJoinMustList } from "../bot/settings";
 import { getRecentLogs, type LogCategory } from "../bot/logging";
 import { db, userSeenTable } from "@workspace/db";
 import { inArray } from "drizzle-orm";
@@ -195,6 +196,29 @@ router.post("/groups/:id/notes", async (req, res) => {
 router.delete("/groups/:id/notes/:name", async (req, res) => {
   try {
     const ok = await removeNote(parseInt(req.params.id, 10), decodeURIComponent(req.params.name));
+    res.json({ ok });
+  } catch { res.status(500).json({ error: "Failed" }); }
+});
+
+// ── Per-group: Joinmust ───────────────────────────────────────────────────────
+
+router.get("/groups/:id/joinmust", async (req, res) => {
+  try { res.json(await getJoinMustList(parseInt(req.params.id, 10))); }
+  catch { res.status(500).json({ error: "Failed" }); }
+});
+
+router.post("/groups/:id/joinmust", async (req, res) => {
+  try {
+    const { targetId, targetUsername } = req.body as { targetId?: unknown; targetUsername?: string };
+    if (!targetId) { res.status(400).json({ error: "targetId required" }); return; }
+    await addJoinMust(parseInt(req.params.id, 10), Number(targetId), targetUsername?.trim() || null);
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: "Failed" }); }
+});
+
+router.delete("/groups/:id/joinmust/:targetId", async (req, res) => {
+  try {
+    const ok = await removeJoinMust(parseInt(req.params.id, 10), parseInt(req.params.targetId, 10));
     res.json({ ok });
   } catch { res.status(500).json({ error: "Failed" }); }
 });

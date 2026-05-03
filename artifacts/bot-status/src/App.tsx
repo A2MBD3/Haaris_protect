@@ -17,6 +17,7 @@ interface GlobalEntry { userId: number; until: string | null; reason: string; di
 interface LogEntry { id: number; ts: number; category: string; text: string; }
 interface FilterItem { word: string; reply: string; }
 interface NoteItem { name: string; content: string; }
+interface JoinMustItem { targetId: number; targetUsername: string | null; }
 
 interface AppSettings {
   watermarkText: string;
@@ -987,7 +988,7 @@ function Broadcast({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: 
 function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: string, t?: "ok" | "err") => void }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState<number | null>(null);
-  const [tab, setTab] = useState<"blacklist" | "filters" | "notes">("blacklist");
+  const [tab, setTab] = useState<"blacklist" | "filters" | "notes" | "joinmust">("blacklist");
 
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blWord, setBlWord] = useState("");
@@ -1003,6 +1004,10 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
   const [nContent, setNContent] = useState("");
   const [nAdding, setNAdding] = useState(false);
   const [editNote, setEditNote] = useState<string | null>(null);
+
+  const [joinMust, setJoinMust] = useState<JoinMustItem[]>([]);
+  const [jmInput, setJmInput] = useState("");
+  const [jmAdding, setJmAdding] = useState(false);
 
   const [loading, setLoading] = useState(false);
 
@@ -1021,6 +1026,7 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
       if (tab === "blacklist") setBlacklist(await api.get(`/groups/${groupId}/blacklist`) as string[]);
       if (tab === "filters") setFilterItems(await api.get(`/groups/${groupId}/filters`) as FilterItem[]);
       if (tab === "notes") setNotes(await api.get(`/groups/${groupId}/notes`) as NoteItem[]);
+      if (tab === "joinmust") setJoinMust(await api.get(`/groups/${groupId}/joinmust`) as JoinMustItem[]);
     } catch { toast("Failed to load data", "err"); }
     finally { setLoading(false); }
   }, [api, groupId, tab, toast]);
@@ -1066,6 +1072,28 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
     catch { toast("Failed", "err"); }
   };
 
+  const addJoinMustEntry = async () => {
+    if (!jmInput.trim() || !groupId) return;
+    setJmAdding(true);
+    const raw = jmInput.trim();
+    const isId = /^-?\d+$/.test(raw);
+    const targetId = isId ? parseInt(raw, 10) : null;
+    const targetUsername = isId ? null : raw.replace(/^@/, "");
+    if (!targetId && !targetUsername) { toast("Enter a username (@channel) or numeric ID", "err"); setJmAdding(false); return; }
+    try {
+      await api.post(`/groups/${groupId}/joinmust`, { targetId: targetId ?? 0, targetUsername });
+      toast("Joinmust requirement added ✓");
+      setJmInput("");
+      loadTab();
+    } catch { toast("Failed to add", "err"); }
+    finally { setJmAdding(false); }
+  };
+  const removeJoinMustEntry = async (targetId: number) => {
+    if (!groupId) return;
+    try { await api.del(`/groups/${groupId}/joinmust/${targetId}`); toast("Removed ✓"); loadTab(); }
+    catch { toast("Failed", "err"); }
+  };
+
   const tabBtn = (id: typeof tab, label: string) => (
     <button onClick={() => setTab(id)} className={`flex-1 py-2 text-xs rounded-lg font-medium transition-colors ${tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>{label}</button>
   );
@@ -1090,10 +1118,11 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
       {groupId && (
         <>
           {/* Tab switcher */}
-          <div className="flex bg-muted rounded-xl p-1 gap-1">
+          <div className="grid grid-cols-4 bg-muted rounded-xl p-1 gap-1">
             {tabBtn("blacklist", "🚫 Blacklist")}
             {tabBtn("filters", "📋 Filters")}
             {tabBtn("notes", "📓 Notes")}
+            {tabBtn("joinmust", "🔗 Join")}
           </div>
 
           {/* Tab content — fixed min-height prevents zoom/shift when switching */}
@@ -1186,6 +1215,45 @@ function Filters({ api, toast }: { api: ReturnType<typeof useApi>; toast: (m: st
                               <Btn size="sm" variant="ghost" onClick={() => { setEditNote(n.name); setNName(n.name); setNContent(n.content); }}>✏️</Btn>
                               <Btn size="sm" variant="danger" onClick={() => removeNote(n.name)}>✕</Btn>
                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Joinmust tab ── */}
+                {tab === "joinmust" && (
+                  <div className="space-y-3">
+                    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Add required channel / group</p>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="@username or numeric ID (e.g. -1001234567890)"
+                          value={jmInput}
+                          onChange={e => setJmInput(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && addJoinMustEntry()}
+                        />
+                        <Btn onClick={addJoinMustEntry} loading={jmAdding}>Add</Btn>
+                      </div>
+                      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2 text-xs text-yellow-400 space-y-1">
+                        <p className="font-semibold">⚠️ Important</p>
+                        <p>The bot must be an <b>admin</b> in the target channel/group to verify memberships. Without admin rights there, verification will silently fail.</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">New members will be muted until they join all listed channels and tap <b>"✅ I Joined"</b>.</p>
+                    </div>
+                    {joinMust.length === 0 ? <EmptyState icon="🔗" text="No join requirements for this group" /> : (
+                      <div className="space-y-2">
+                        {joinMust.map(jm => (
+                          <div key={jm.targetId} className="bg-card border border-blue-500/20 rounded-xl p-4 flex items-center gap-3">
+                            <div className="w-9 h-9 bg-blue-500/10 rounded-lg flex items-center justify-center text-sm flex-shrink-0">🔗</div>
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              {jm.targetUsername && (
+                                <p className="text-sm font-semibold text-foreground">@{jm.targetUsername}</p>
+                              )}
+                              <code className="text-xs font-mono text-muted-foreground select-all bg-muted px-1.5 py-0.5 rounded">{jm.targetId}</code>
+                            </div>
+                            <Btn size="sm" variant="danger" onClick={() => removeJoinMustEntry(jm.targetId)}>✕ Remove</Btn>
                           </div>
                         ))}
                       </div>

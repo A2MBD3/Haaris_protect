@@ -342,6 +342,31 @@ async function handleNewMember(ctx: any, chatId: number, user: any, chatTitle: s
     await ctx.api.sendMessage(chatId, msg, { parse_mode: "HTML" }).catch(() => {});
   }
 
+  // Joinmust check — mute new member until they've subscribed to all required channels
+  const joinMustList = await getJoinMustList(chatId);
+  if (joinMustList.length > 0) {
+    try {
+      await muteUser(ctx, chatId, user.id, 0);
+      const lines = joinMustList.map((jm) =>
+        jm.targetUsername ? `• @${jm.targetUsername}` : `• <code>${jm.targetId}</code>`,
+      );
+      await ctx.api.sendMessage(
+        chatId,
+        `👋 ${userLink(user.id, userName)}, welcome! To chat here you must first join:\n\n${lines.join("\n")}\n\nTap the button below once you've joined all of them.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[{ text: "✅ I Joined", callback_data: `jm_verify:${chatId}:${user.id}` }]],
+          },
+        },
+      ).catch(() => {});
+      await logGeneral(ctx.api, `🔗 <b>Joinmust muted on join:</b> ${escapeHtml(userName)} (<code>${user.id}</code>) in <code>${chatId}</code>`);
+    } catch (err) {
+      logger.warn({ err }, "Joinmust mute failed");
+    }
+    return; // joinmust takes priority over captcha
+  }
+
   if (!settings.captchaEnabled) return;
   await startCaptchaForJoin(ctx, chatId, chatTitle, user.id, userName);
   await logCaptcha(ctx.api, `🔐 <b>Captcha started:</b> ${escapeHtml(userName)} (<code>${user.id}</code>) in <code>${chatId}</code>`);
@@ -2097,9 +2122,28 @@ bot.command("joinmust", async (ctx) => {
     if (!targetId) { await ctx.reply("❌ Invalid ID."); return; }
   }
 
+  // Warn if bot is not an admin in the target channel (needed to verify member status)
+  const me = await ctx.api.getMe().catch(() => null);
+  if (me) {
+    try {
+      const m = await ctx.api.getChatMember(targetId, me.id);
+      if (m.status !== "administrator" && m.status !== "creator") {
+        await ctx.reply(
+          `⚠️ <b>Warning:</b> The bot is not an admin in that channel/group.\n\nWithout admin rights there, it <b>cannot verify</b> whether new members have subscribed.\nPlease add @${botUsername} as an admin in the target channel first.\n\n<i>The requirement has been saved anyway — fix the channel permissions before relying on this.</i>`,
+          { parse_mode: "HTML" },
+        );
+      }
+    } catch {
+      await ctx.reply(
+        `⚠️ <b>Warning:</b> Could not verify bot's admin status in that channel/group.\n\nMake sure @${botUsername} is added as an admin there for membership verification to work.\n\n<i>The requirement has been saved anyway.</i>`,
+        { parse_mode: "HTML" },
+      );
+    }
+  }
+
   await addJoinMust(chat.id, targetId, targetUsername);
   await ctx.reply(
-    `✅ Joinmust added: ${targetUsername ? `@${targetUsername}` : ""} <code>${targetId}</code>\n\nNew members will be muted until they join that chat.`,
+    `✅ <b>Joinmust added:</b> ${targetUsername ? `@${targetUsername}` : ""} <code>${targetId}</code>\n\nNew members will be muted until they join that chat.`,
     { parse_mode: "HTML" },
   );
   await logSettings(ctx.api, `🔗 <b>Joinmust added:</b> <code>${targetId}</code> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
