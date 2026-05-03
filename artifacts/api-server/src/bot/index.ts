@@ -1363,7 +1363,7 @@ bot.command("help", async (ctx) => {
         `<b>✅ Approvals:</b> /approve · /unapprove · /approved · /unapproveall\n` +
         `<b>⚙️ Settings:</b> /warnsetting · /captcha · /antibot · /antichannel\n` +
         `<b>🔑 Auth:</b> /redeem\n` +
-        `<b>ℹ️ Info:</b> /info · /id · /me · /warns · /bans · /approval · /backup`,
+        `<b>ℹ️ Info:</b> /info · /id · /me · /warns · /bans · /approval · /backup · /restore`,
         { parse_mode: "HTML" },
       );
     } else {
@@ -2248,7 +2248,7 @@ bot.command("backup", async (ctx) => {
     const payload = { version: 1, groupId: chat!.id, title, exportedAt: new Date().toISOString(), settings: s };
     const json = JSON.stringify(payload, null, 2);
     await ctx.reply(
-      `📦 <b>Config backup for this group</b>\n\n<pre>${escapeHtml(json)}</pre>\n\nForward this to a super admin and use <code>/restore [json]</code> to restore.`,
+      `📦 <b>Config backup for this group</b>\n\n<pre>${escapeHtml(json)}</pre>\n\n<b>To restore:</b> Reply to this message with <code>/restore</code>`,
       { parse_mode: "HTML" },
     );
     return;
@@ -2285,11 +2285,32 @@ bot.command("restore", async (ctx) => {
     if (!(await requireSuperAdmin(ctx))) return;
   }
 
-  const text = ctx.message?.text || "";
-  const raw = text.replace(/^\/restore(@\w+)?\s*/i, "").trim();
-  if (!raw) { await ctx.reply("Usage: /restore [json] — paste the JSON from /backup"); return; }
+  let raw = "";
+
+  // Primary path: reply to a /backup message → extract the JSON block from it
+  const replyMsg = ctx.message?.reply_to_message;
+  if (replyMsg) {
+    const replyText = replyMsg.text || replyMsg.caption || "";
+    const match = replyText.match(/\{[\s\S]*\}/);
+    if (match) raw = match[0];
+  }
+
+  // Fallback: inline JSON after the command
+  if (!raw) {
+    const text = ctx.message?.text || "";
+    raw = text.replace(/^\/restore(@\w+)?\s*/i, "").trim();
+  }
+
+  if (!raw) {
+    await ctx.reply("Usage:\n• Reply to a /backup message with /restore\n• Or: /restore [json]");
+    return;
+  }
+
+  // HTML-decode: some Telegram clients copy &amp; &lt; &gt; from code blocks verbatim
+  raw = raw.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+
   let payload: any;
-  try { payload = JSON.parse(raw); } catch { await ctx.reply("❌ Invalid JSON."); return; }
+  try { payload = JSON.parse(raw); } catch { await ctx.reply("❌ Invalid JSON. Try replying directly to the /backup message with /restore instead of copy-pasting."); return; }
   const gid = payload?.groupId;
   const settings = payload?.settings;
   if (!gid || !settings) { await ctx.reply("❌ Invalid backup format. Missing groupId or settings."); return; }
