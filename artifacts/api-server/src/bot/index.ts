@@ -2292,27 +2292,30 @@ bot.command("get", async (ctx) => {
   const keyPattern = /^[A-Z0-9]{8,20}$/i;
   if (keyPattern.test(raw)) {
     const rows = await db.select().from(authKeysTable).where(eq(authKeysTable.key, raw.toUpperCase())).limit(1);
-    if (rows.length > 0) {
-      const k = rows[0]!;
-      const now = Date.now();
-      const expired = k.expiresAt && k.expiresAt.getTime() < now;
-      const exhausted = k.usedCount >= k.maxUses;
-      const status = expired ? "Expired ⚠️" : exhausted ? "Used up 🔴" : "Active ✅";
-      const usedBy = await listGroups();
-      const usingGroups = usedBy.filter((g) => g.authorizedKey?.toUpperCase() === raw.toUpperCase());
-      const groupLines = usingGroups.length > 0
-        ? usingGroups.map((g) => `  · ${escapeHtml(g.title || "Group")} — <code>${g.groupId}</code>`).join("\n")
-        : "  (none)";
-      return await ctx.reply(
-        `🔑 <b>Token Info</b>\n\n` +
-        `Key: <code>${k.key}</code>\n` +
-        `📊 Uses: <b>${k.usedCount} / ${k.maxUses}</b>\n` +
-        `🏘 Groups:\n${groupLines}\n` +
-        `⏳ Expires: ${fmtDate(k.expiresAt)}${daysLeft(k.expiresAt)}\n` +
-        `Status: ${status}`,
-        { parse_mode: "HTML" },
-      );
+    if (rows.length === 0) {
+      await ctx.reply(`❌ Token <code>${escapeHtml(raw.toUpperCase())}</code> not found.`, { parse_mode: "HTML" });
+      return;
     }
+    const k = rows[0]!;
+    const now = Date.now();
+    const expired = k.expiresAt && k.expiresAt.getTime() < now;
+    const exhausted = k.usedCount >= k.maxUses;
+    const status = expired ? "Expired ⚠️" : exhausted ? "Used up 🔴" : "Active ✅";
+    const usedBy = await listGroups();
+    const usingGroups = usedBy.filter((g) => g.authorizedKey?.toUpperCase() === raw.toUpperCase());
+    const groupLines = usingGroups.length > 0
+      ? usingGroups.map((g) => `  · ${escapeHtml(g.title || "Group")} — <code>${g.groupId}</code>`).join("\n")
+      : "  (none)";
+    await ctx.reply(
+      `🔑 <b>Token Info</b>\n\n` +
+      `Key: <code>${k.key}</code>\n` +
+      `📊 Uses: <b>${k.usedCount} / ${k.maxUses}</b>\n` +
+      `🏘 Groups:\n${groupLines}\n` +
+      `⏳ Expires: ${fmtDate(k.expiresAt)}${daysLeft(k.expiresAt)}\n` +
+      `Status: ${status}`,
+      { parse_mode: "HTML" },
+    );
+    return;
   }
 
   // Numeric ID — detect what type it is

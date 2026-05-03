@@ -212,8 +212,7 @@ export async function violatesLock(
       entities.some(
         (e) =>
           e.type === "url" ||
-          e.type === "text_link" ||
-          e.type === "mention",
+          e.type === "text_link",
       )
     ) {
       return "link";

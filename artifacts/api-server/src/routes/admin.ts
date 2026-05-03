@@ -190,7 +190,8 @@ router.get("/keys", async (_req, res) => {
 router.post("/keys", async (req, res) => {
   try {
     const { maxUses = 1, expiresInDays = 30 } = req.body;
-    const key = await createAuthKey(Math.max(1, expiresInDays) * 86400, Math.max(1, maxUses), 0);
+    const durationSec = expiresInDays > 0 ? Number(expiresInDays) * 86400 : 0;
+    const key = await createAuthKey(durationSec, Math.max(1, maxUses), 0);
     res.json(key);
   } catch { res.status(500).json({ error: "Failed to create key" }); }
 });
