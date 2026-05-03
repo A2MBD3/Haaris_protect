@@ -213,7 +213,7 @@ function SettingsModal({ settings, onSave, onClose, token }: {
                   {copied ? "✓ Copied" : "Copy"}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground">To change this password, update the bot token. The password is derived from it.</p>
+              <p className="text-[11px] text-muted-foreground">To change this password, use <code className="bg-muted px-1 rounded">/resetpass</code> in Telegram (super admins only). Use <code className="bg-muted px-1 rounded">/resetpassdefault</code> to revert.</p>
             </div>
           </div>
 

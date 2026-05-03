@@ -158,7 +158,8 @@ async function resolveTargetAndDuration(ctx: any, args: string[]): Promise<{ tar
     if (e.type === "text_mention" && e.user) {
       const u = e.user;
       const name = [u.first_name, u.last_name].filter(Boolean).join(" ") || String(u.id);
-      const durationSec = args.length > 0 ? (parseDuration(args[0]) ?? 0) : 0;
+      const durArg = args.find(a => parseDuration(a) !== null);
+      const durationSec = durArg ? (parseDuration(durArg) ?? 0) : 0;
       return { target: { id: u.id, name }, durationSec };
     }
   }
@@ -237,7 +238,10 @@ async function isUserGroupAdmin(api: typeof bot.api, chatId: number, userId: num
 }
 
 async function requireSuperAdmin(ctx: any): Promise<boolean> {
-  if (ctx.chat?.type !== "private") return false;
+  if (ctx.chat?.type !== "private") {
+    await ctx.reply("❌ Super admin commands must be used in a private chat with the bot.").catch(() => {});
+    return false;
+  }
   const fromId = ctx.from?.id;
   if (!fromId || !(await isSuperAdmin(fromId))) {
     await ctx.reply("⛔ This command is for Super Admins only.").catch(() => {});
@@ -618,6 +622,12 @@ bot.on("message", async (ctx, next) => {
             await resetBlacklistHits(chat.id, userId);
             await ctx.api.sendMessage(chat.id, `🚫 ${link} has been <b>banned</b> for ${formatDuration(settings.blacklistDurationSec)} due to repeated use of blacklisted words.`, { parse_mode: "HTML" }).catch(() => {});
             await logFilter(ctx.api, `⛔ <b>Blacklist ban:</b> ${link} in <code>${chat.id}</code> (${formatDuration(settings.blacklistDurationSec)}, word: <i>${escapeHtml(word)}</i>)`);
+          } else if (settings.blacklistAction === "kick") {
+            await ctx.api.banChatMember(chat.id, userId);
+            await ctx.api.unbanChatMember(chat.id, userId, { only_if_banned: true });
+            await resetBlacklistHits(chat.id, userId);
+            await ctx.api.sendMessage(chat.id, `🚪 ${link} has been <b>kicked</b> for repeated use of blacklisted words.`, { parse_mode: "HTML" }).catch(() => {});
+            await logFilter(ctx.api, `🚪 <b>Blacklist kick:</b> ${link} in <code>${chat.id}</code> (word: <i>${escapeHtml(word)}</i>)`);
           } else {
             await muteUser(ctx, chat.id, userId, settings.blacklistDurationSec);
             await resetBlacklistHits(chat.id, userId);
@@ -1058,7 +1068,8 @@ bot.command("unlock", async (ctx) => {
 });
 
 bot.command("locktypes", async (ctx) => {
-  const active = await getLocks(ctx.chat?.id ?? 0);
+  if (!(await requireGroupAdmin(ctx))) return;
+  const active = await getLocks(ctx.chat!.id);
   const lines = LOCK_TYPES.map((t) => `${active.has(t) ? "🔒" : "🔓"} ${t}`);
   await ctx.reply(`<b>Lock Types</b>\n${lines.join("\n")}`, { parse_mode: "HTML" });
 });
@@ -1076,8 +1087,8 @@ bot.command("filter", async (ctx) => {
 });
 
 bot.command("filters", async (ctx) => {
-  if (!ctx.chat) return;
-  const filters = await listFilters(ctx.chat.id);
+  if (!(await requireGroupAdmin(ctx))) return;
+  const filters = await listFilters(ctx.chat!.id);
   if (filters.length === 0) { await ctx.reply("No filters set."); return; }
   const lines = filters.map((f) => `• <b>${escapeHtml(f.word)}</b> → ${escapeHtml(f.reply)}`);
   await ctx.reply(`📋 <b>Active Filters</b>\n${lines.join("\n")}`, { parse_mode: "HTML" });
@@ -1110,8 +1121,8 @@ bot.command("rmbl", async (ctx) => {
 });
 
 bot.command("blacklisted", async (ctx) => {
-  if (!ctx.chat) return;
-  const words = await listBlacklist(ctx.chat.id);
+  if (!(await requireGroupAdmin(ctx))) return;
+  const words = await listBlacklist(ctx.chat!.id);
   if (words.length === 0) { await ctx.reply("Blacklist is empty."); return; }
   await ctx.reply(`🚫 <b>Blacklisted Words</b>\n${words.map((w) => `• ${escapeHtml(w)}`).join("\n")}`, { parse_mode: "HTML" });
 });
@@ -1133,7 +1144,7 @@ bot.command("blsetting", async (ctx) => {
   const threshold = parseInt(args[0]!, 10);
   const dur = parseDuration(args[1]);
   const action = args[2]!.toLowerCase();
-  if (Number.isNaN(threshold) || threshold < 1 || dur === null || (action !== "mute" && action !== "ban")) {
+  if (Number.isNaN(threshold) || threshold < 1 || dur === null || (action !== "mute" && action !== "ban" && action !== "kick")) {
     await ctx.reply("❌ Invalid. Example: /blsetting 3 1h mute"); return;
   }
   await updateGroupSettings(ctx.chat!.id, { blacklistThreshold: threshold, blacklistDurationSec: dur, blacklistAction: action });

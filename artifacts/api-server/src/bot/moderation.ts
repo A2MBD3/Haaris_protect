@@ -6,6 +6,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 import { scheduleTask } from "./scheduler";
 import { getGroupSettings } from "./settings";
+import { formatDuration } from "./utils";
 import { logger } from "../lib/logger";
 
 export async function banUser(
@@ -153,15 +154,21 @@ export async function applyAutoActionIfNeeded(
 ): Promise<string | null> {
   const settings = await getGroupSettings(groupId);
   if (count < settings.warnLimit) return null;
+  const durLabel = settings.warnDurationSec === 0 ? "permanent" : formatDuration(settings.warnDurationSec);
   try {
     if (settings.warnAction === "ban") {
       await banUser(ctx, groupId, userId, settings.warnDurationSec);
       await resetWarnings(groupId, userId);
-      return `auto-banned (${settings.warnDurationSec === 0 ? "permanent" : settings.warnDurationSec + "s"})`;
+      return `auto-banned (${durLabel})`;
+    } else if (settings.warnAction === "kick") {
+      await ctx.api.banChatMember(groupId, userId);
+      await ctx.api.unbanChatMember(groupId, userId, { only_if_banned: true });
+      await resetWarnings(groupId, userId);
+      return `auto-kicked`;
     } else {
       await muteUser(ctx, groupId, userId, settings.warnDurationSec);
       await resetWarnings(groupId, userId);
-      return `auto-muted (${settings.warnDurationSec === 0 ? "permanent" : settings.warnDurationSec + "s"})`;
+      return `auto-muted (${durLabel})`;
     }
   } catch (err) {
     logger.warn({ err }, "Auto-action failed");
