@@ -4,7 +4,12 @@ import { isSuperAdmin, getSuperAdmins, isHardcodedSuper } from "./admin";
 import {
   getGroupSettings, updateGroupSettings, getJoinMustList, addJoinMust, removeJoinMust, listGroups,
 } from "./settings";
-import { getLocks, addLock, removeLock } from "./content";
+import {
+  getLocks, addLock, removeLock,
+  addFilter, removeFilter, listFilters,
+  addBlacklistWord, removeBlacklistWord, listBlacklist, resetBlacklist,
+} from "./content";
+import { saveNote, removeNote, listNotes } from "./notes";
 import { LOCK_TYPES, type LockType } from "./constants";
 import {
   banUser, unbanUser, muteUser, unmuteUser,
@@ -101,7 +106,30 @@ async function buildMod(chatId: number, title: string): Promise<{ text: string; 
   return {
     text: `🛡️ <b>Moderation</b>\n📌 ${escapeHtml(title)}\n\n⛔ Active bans: <b>${bans.length}</b>\n🔇 Active mutes: <b>${mutes.length}</b>\n⚠️ Warn limit: <b>${s.warnLimit}</b> → ${s.warnAction} (${warnDur})`,
     kb: new InlineKeyboard()
+      .text(`⛔ Bans (${bans.length})`, cb("p|bns", chatId)).text(`🔇 Mutes (${mutes.length})`, cb("p|mts", chatId)).row()
       .text("⬅️ Back", cb("p|home", chatId)).text("❌ Close", "p|close"),
+  };
+}
+
+async function buildRestrictions(api: any, chatId: number, title: string, type: "ban" | "mute"): Promise<{ text: string; kb: InlineKeyboard }> {
+  const list = await listGroupRestrictions(chatId, type);
+  const emoji = type === "ban" ? "⛔" : "🔇";
+  const label = type === "ban" ? "Bans" : "Mutes";
+  const actionKey = type === "ban" ? "p|ub" : "p|um";
+  const kb = new InlineKeyboard();
+  for (const r of list.slice(0, 18)) {
+    const exp = r.until ? ` (${r.until.toISOString().slice(0, 10)})` : " perm";
+    let name = String(r.userId);
+    try { const m = await api.getChatMember(chatId, r.userId); name = [m.user.first_name, m.user.last_name].filter(Boolean).join(" ") || name; } catch {}
+    const d = cb(actionKey, chatId, r.userId);
+    if (d.length <= 64) kb.text(`✅ ${escapeHtml(name.slice(0, 20))}${exp}`, d).row();
+  }
+  if (list.length > 18) kb.text(`…+${list.length - 18} more`, "p|noop").row();
+  if (list.length === 0) kb.text(`No active ${label.toLowerCase()}.`, "p|noop").row();
+  kb.text("⬅️ Back", cb("p|mod", chatId)).text("❌ Close", "p|close");
+  return {
+    text: `${emoji} <b>${label} (${list.length})</b>\n📌 ${escapeHtml(title)}\n\nTap ✅ to lift the restriction.`,
+    kb,
   };
 }
 
@@ -187,19 +215,93 @@ async function buildSecurity(chatId: number, title: string): Promise<{ text: str
 }
 
 async function buildContent(chatId: number, title: string): Promise<{ text: string; kb: InlineKeyboard }> {
-  const s = await getGroupSettings(chatId);
+  const [s, blWords, filters, notes] = await Promise.all([
+    getGroupSettings(chatId),
+    listBlacklist(chatId),
+    listFilters(chatId),
+    listNotes(chatId),
+  ]);
   const blDur = s.blacklistDurationSec ? formatDuration(s.blacklistDurationSec) : "perm";
   return {
     text: `📋 <b>Content</b>\n📌 ${escapeHtml(title)}\n\n` +
-      `🚫 Blacklist: action=<b>${s.blacklistAction}</b> · ${s.blacklistThreshold} hits · ${blDur}\n` +
-      `🌐 Global BL sync: <b>${s.globalBlacklistEnabled ? "ON" : "OFF"}</b>\n\n` +
-      `<i>To manage words, filters and notes, use the Web Admin Panel for better experience.</i>`,
+      `🚫 Blacklist: <b>${blWords.length}</b> word(s) · ${s.blacklistAction} · ${s.blacklistThreshold} hits · ${blDur}\n` +
+      `🔍 Filters: <b>${filters.length}</b>\n` +
+      `📝 Notes: <b>${notes.length}</b>\n` +
+      `🌐 Global BL: <b>${s.globalBlacklistEnabled ? "ON" : "OFF"}</b>`,
     kb: new InlineKeyboard()
       .text("🚫 → Mute", cb("p|bla", chatId, "mute")).text("🚫 → Ban", cb("p|bla", chatId, "ban")).text("🚫 → Kick", cb("p|bla", chatId, "kick")).row()
       .text("Hits: 1", cb("p|blt", chatId, 1)).text("Hits: 2", cb("p|blt", chatId, 2)).text("Hits: 3", cb("p|blt", chatId, 3)).text("Hits: 5", cb("p|blt", chatId, 5)).row()
       .text(s.globalBlacklistEnabled ? "🌐 Global BL: ON" : "🌐 Global BL: OFF", cb("p|tg", chatId, "gbl")).row()
-      .text("➕ Add BL word", cb("p|inp", chatId, "bl_word")).row()
+      .text(`🚫 BL Words (${blWords.length})`, cb("p|blw", chatId)).text("➕ Add word", cb("p|inp", chatId, "bl_word")).row()
+      .text(`🔍 Filters (${filters.length})`, cb("p|flt", chatId)).text("➕ Add filter", cb("p|inp", chatId, "filter_kw")).row()
+      .text(`📝 Notes (${notes.length})`, cb("p|nts", chatId)).text("➕ Add note", cb("p|inp", chatId, "note_name")).row()
       .text("⬅️ Back", cb("p|home", chatId)).text("❌ Close", "p|close"),
+  };
+}
+
+async function buildBLWords(chatId: number, title: string): Promise<{ text: string; kb: InlineKeyboard }> {
+  const words = await listBlacklist(chatId);
+  const kb = new InlineKeyboard();
+  const shown = words.slice(0, 20);
+  for (let i = 0; i < shown.length; i += 2) {
+    const w1 = shown[i]!;
+    const w2 = shown[i + 1];
+    const d1 = cb("p|rmblw", chatId, w1);
+    if (w2) {
+      const d2 = cb("p|rmblw", chatId, w2);
+      if (d1.length <= 64 && d2.length <= 64) { kb.text(`❌ ${w1}`, d1).text(`❌ ${w2}`, d2).row(); }
+      else if (d1.length <= 64) { kb.text(`❌ ${w1}`, d1).row(); }
+    } else {
+      if (d1.length <= 64) kb.text(`❌ ${w1}`, d1).row();
+    }
+  }
+  if (words.length > 20) kb.text(`…+${words.length - 20} more`, "p|noop").row();
+  if (words.length === 0) kb.text("No blacklisted words yet.", "p|noop").row();
+  kb.text("➕ Add word", cb("p|inp", chatId, "bl_word"));
+  if (words.length > 0) kb.text("🗑️ Clear all", cb("p|rsbl", chatId));
+  kb.row().text("⬅️ Back", cb("p|cnt", chatId)).text("❌ Close", "p|close");
+  const listText = shown.map((w) => `• <code>${escapeHtml(w)}</code>`).join("\n");
+  return {
+    text: `🚫 <b>Blacklist (${words.length})</b>\n📌 ${escapeHtml(title)}\n\n${listText || "Empty."}`,
+    kb,
+  };
+}
+
+async function buildFilters(chatId: number, title: string): Promise<{ text: string; kb: InlineKeyboard }> {
+  const filters = await listFilters(chatId);
+  const kb = new InlineKeyboard();
+  for (const f of filters.slice(0, 15)) {
+    const d = cb("p|rmflt", chatId, f.word);
+    if (d.length <= 64) kb.text(`❌ ${f.word}`, d).row();
+  }
+  if (filters.length > 15) kb.text(`…+${filters.length - 15} more`, "p|noop").row();
+  if (filters.length === 0) kb.text("No filters set yet.", "p|noop").row();
+  kb.text("➕ Add filter", cb("p|inp", chatId, "filter_kw")).row();
+  kb.text("⬅️ Back", cb("p|cnt", chatId)).text("❌ Close", "p|close");
+  const lines = filters.slice(0, 15).map(
+    (f) => `• <code>${escapeHtml(f.word)}</code> → <i>${escapeHtml(f.reply.slice(0, 50))}${f.reply.length > 50 ? "…" : ""}</i>`,
+  );
+  return {
+    text: `🔍 <b>Filters (${filters.length})</b>\n📌 ${escapeHtml(title)}\n\nKeyword matches trigger a reply.\n\n${lines.join("\n") || "Empty."}`,
+    kb,
+  };
+}
+
+async function buildNotes(chatId: number, title: string): Promise<{ text: string; kb: InlineKeyboard }> {
+  const notes = await listNotes(chatId);
+  const kb = new InlineKeyboard();
+  for (const n of notes.slice(0, 15)) {
+    const d = cb("p|rmnts", chatId, n.name);
+    if (d.length <= 64) kb.text(`❌ ${n.name}`, d).row();
+  }
+  if (notes.length > 15) kb.text(`…+${notes.length - 15} more`, "p|noop").row();
+  if (notes.length === 0) kb.text("No notes saved yet.", "p|noop").row();
+  kb.text("➕ Add note", cb("p|inp", chatId, "note_name")).row();
+  kb.text("⬅️ Back", cb("p|cnt", chatId)).text("❌ Close", "p|close");
+  const lines = notes.slice(0, 15).map((n) => `• <code>${escapeHtml(n.name)}</code>`);
+  return {
+    text: `📝 <b>Notes (${notes.length})</b>\n📌 ${escapeHtml(title)}\n\nTrigger in group with <code>#notename</code>.\n\n${lines.join("\n") || "Empty."}`,
+    kb,
   };
 }
 
@@ -357,10 +459,11 @@ export async function processPanelInput(ctx: any): Promise<boolean> {
     const preview = text.replace(/\{name\}/gi, "John").replace(/\{username\}/gi, "@john").replace(/\{id\}/gi, "123456").replace(/\{group\}/gi, groupName);
     await ctx.reply(`✅ <b>Welcome message set for ${escapeHtml(groupName)}</b>\n\n<b>Preview:</b>\n${preview}`, { parse_mode: "HTML" });
     await logSettings(ctx.api, `👋 <b>Welcome set</b> for <code>${chatId}</code> by <code>${userId}</code>`);
+
   } else if (type === "bl_word") {
-    const { addBlacklistWord } = await import("./content");
     await addBlacklistWord(chatId, text);
-    await ctx.reply(`✅ <b>Blacklisted</b> word: <code>${escapeHtml(text)}</code> in <b>${escapeHtml(groupName)}</b>`, { parse_mode: "HTML" });
+    await ctx.reply(`✅ <b>Blacklisted:</b> <code>${escapeHtml(text)}</code> in <b>${escapeHtml(groupName)}</b>`, { parse_mode: "HTML" });
+
   } else if (type === "jm_add") {
     const raw = text.replace(/^@/, "");
     const isId = /^-?\d+$/.test(raw);
@@ -382,6 +485,37 @@ export async function processPanelInput(ctx: any): Promise<boolean> {
     await addJoinMust(chatId, targetId, targetUsername);
     await ctx.reply(`✅ <b>Joinmust added</b>: ${targetUsername ? `@${targetUsername}` : ""} <code>${targetId}</code> for <b>${escapeHtml(groupName)}</b>`, { parse_mode: "HTML" });
     await logSettings(ctx.api, `🔗 <b>Joinmust added:</b> <code>${targetId}</code> for <code>${chatId}</code> by <code>${userId}</code>`);
+
+  } else if (type === "filter_kw") {
+    // Step 1 of 2: got keyword, now ask for reply text
+    pendingPanelInput.set(userId, { type: "filter_reply", chatId, groupName, data: { kw: text } });
+    await ctx.reply(
+      `✅ Keyword: <code>${escapeHtml(text)}</code>\n\nNow send the <b>reply message</b> the bot should send when this keyword is matched.\n\n/cancel to abort.`,
+      { parse_mode: "HTML" },
+    );
+
+  } else if (type === "filter_reply") {
+    const kw = pending.data?.["kw"] ?? "";
+    if (!kw) { await ctx.reply("❌ No keyword found, please start again."); return true; }
+    await addFilter(chatId, kw, text);
+    await ctx.reply(`✅ <b>Filter added</b>\nKeyword: <code>${escapeHtml(kw)}</code>\nReply: <i>${escapeHtml(text.slice(0, 80))}${text.length > 80 ? "…" : ""}</i>`, { parse_mode: "HTML" });
+    await logSettings(ctx.api, `🔍 <b>Filter added:</b> <code>${escapeHtml(kw)}</code> in <code>${chatId}</code> by <code>${userId}</code>`);
+
+  } else if (type === "note_name") {
+    // Step 1 of 2: got name, now ask for content
+    const safeName = text.replace(/\s+/g, "_").toLowerCase();
+    pendingPanelInput.set(userId, { type: "note_content", chatId, groupName, data: { name: safeName } });
+    await ctx.reply(
+      `✅ Note name: <code>${escapeHtml(safeName)}</code>\n\nNow send the <b>note content</b>.\nTrigger in group with: <code>#${escapeHtml(safeName)}</code>\nHTML formatting supported.\n\n/cancel to abort.`,
+      { parse_mode: "HTML" },
+    );
+
+  } else if (type === "note_content") {
+    const name = pending.data?.["name"] ?? "";
+    if (!name) { await ctx.reply("❌ No note name found, please start again."); return true; }
+    await saveNote(chatId, name, text, userId);
+    await ctx.reply(`✅ <b>Note saved:</b> <code>#${escapeHtml(name)}</code>\n\nTrigger it in the group with <code>#${escapeHtml(name)}</code>.`, { parse_mode: "HTML" });
+    await logSettings(ctx.api, `📝 <b>Note saved:</b> <code>${escapeHtml(name)}</code> in <code>${chatId}</code> by <code>${userId}</code>`);
   }
 
   return true;
@@ -671,6 +805,101 @@ export function registerPanelHandlers(bot: Bot) {
     await ctx.answerCallbackQuery({ text: `✅ Removed joinmust for ${targetId}` });
   });
 
+  // ── Bans / Mutes list panels ───────────────────────────────────────────────
+  bot.callbackQuery(/^p\|bns\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildRestrictions(ctx.api, chatId, title, "ban");
+    await sendOrEdit(ctx, text, kb);
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^p\|mts\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildRestrictions(ctx.api, chatId, title, "mute");
+    await sendOrEdit(ctx, text, kb);
+    await ctx.answerCallbackQuery();
+  });
+
+  // ── BL Words panel ─────────────────────────────────────────────────────────
+  bot.callbackQuery(/^p\|blw\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildBLWords(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^p\|rmblw\|(-?\d+)\|(.+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    const word = ctx.match[2]!;
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    await removeBlacklistWord(chatId, word);
+    await ctx.answerCallbackQuery({ text: `✅ Removed: ${word}` });
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildBLWords(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+  });
+
+  bot.callbackQuery(/^p\|rsbl\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    await resetBlacklist(chatId);
+    await ctx.answerCallbackQuery({ text: "🗑️ All BL words cleared.", show_alert: true });
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildBLWords(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+  });
+
+  // ── Filters panel ──────────────────────────────────────────────────────────
+  bot.callbackQuery(/^p\|flt\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildFilters(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^p\|rmflt\|(-?\d+)\|(.+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    const word = ctx.match[2]!;
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    await removeFilter(chatId, word);
+    await ctx.answerCallbackQuery({ text: `✅ Filter removed: ${word}` });
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildFilters(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+  });
+
+  // ── Notes panel ────────────────────────────────────────────────────────────
+  bot.callbackQuery(/^p\|nts\|(-?\d+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildNotes(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^p\|rmnts\|(-?\d+)\|(.+)$/, async (ctx) => {
+    const chatId = parseInt(ctx.match[1]!, 10);
+    const name = ctx.match[2]!;
+    if (!(await isCallerAdmin(ctx, chatId))) { await ctx.answerCallbackQuery({ text: "Admins only." }); return; }
+    await removeNote(chatId, name);
+    await ctx.answerCallbackQuery({ text: `✅ Note removed: ${name}` });
+    const title = await getTitle(ctx.api, chatId);
+    const { text, kb } = await buildNotes(chatId, title);
+    await sendOrEdit(ctx, text, kb);
+  });
+
+  // ── No-op (display-only buttons) ──────────────────────────────────────────
+  bot.callbackQuery("p|noop", async (ctx) => { await ctx.answerCallbackQuery(); });
+
   // ── Toggle settings ────────────────────────────────────────────────────────
   bot.callbackQuery(/^p\|tg\|(-?\d+)\|(\w+)$/, async (ctx) => {
     const chatId = parseInt(ctx.match[1]!, 10);
@@ -710,7 +939,9 @@ export function registerPanelHandlers(bot: Bot) {
     const prompts: Record<string, string> = {
       welcome_msg: `✏️ <b>Set welcome message for ${escapeHtml(title)}</b>\n\nSend me the welcome text now.\nPlaceholders: {name}, {username}, {id}, {group}\nHTML formatting supported.\n\n/cancel to abort.`,
       bl_word: `✏️ <b>Add blacklisted word for ${escapeHtml(title)}</b>\n\nSend me the word/phrase to blacklist.\n\n/cancel to abort.`,
-      jm_add: `✏️ <b>Add joinmust requirement for ${escapeHtml(title)}</b>\n\nSend me the channel @username or numeric ID.\nExample: @mychannel  or  -1001234567890\n\n/cancel to abort.`,
+      jm_add: `✏️ <b>Add joinmust for ${escapeHtml(title)}</b>\n\nSend the channel @username or numeric ID.\nExample: @mychannel  or  -1001234567890\n\n/cancel to abort.`,
+      filter_kw: `✏️ <b>Add filter for ${escapeHtml(title)} — Step 1/2</b>\n\nSend me the <b>keyword</b> to match (case-insensitive, whole word).\n\n/cancel to abort.`,
+      note_name: `✏️ <b>Add note for ${escapeHtml(title)} — Step 1/2</b>\n\nSend me the <b>note name</b> (no spaces, used as trigger key).\nExample: <code>rules</code> → trigger with <code>#rules</code>\n\n/cancel to abort.`,
     };
     const prompt = prompts[inputType];
     if (!prompt) { await ctx.answerCallbackQuery({ text: "Unknown input type." }); return; }

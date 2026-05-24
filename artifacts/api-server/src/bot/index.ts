@@ -430,19 +430,81 @@ bot.command("start", async (ctx) => {
     if (!fromId) return;
 
     if (await isSuperAdmin(fromId)) {
-      await ctx.reply(
-        "👋 Welcome, Super Admin!\n\nUse /help for the full command list.",
-      );
+      await openSAPanel(ctx);
     } else {
-      // Regular user in PM
       await ctx.reply(
-        `👋 Hi! I'm <b>@${botUsername}</b> — a group management bot.\n\nAdd me to your group as an admin and authorize the group with a token from a Super Admin to get started.`,
+        `👋 Hi! I'm <b>@${botUsername}</b>, a Telegram group management bot.\n\n` +
+        `Add me to your group as an admin, then use <code>/redeem [token]</code> to authorize the group.\n\n` +
+        `<b>Need a token?</b> Contact a Super Admin.\n\n` +
+        `Once authorized, group admins can use <b>/cp</b> to open the control panel.`,
         { parse_mode: "HTML" },
       );
     }
   } else {
-    await ctx.reply("Hi! Make sure I'm an admin and this group is authorized (/redeem).").catch(() => {});
+    await ctx.reply(
+      `👋 Hi! To get started:\n1. Make me an admin\n2. Use /redeem [token] to authorize this group\n3. Then use /cp to manage settings`,
+    ).catch(() => {});
   }
+});
+
+// ── /help ─────────────────────────────────────────────────────────────────────
+
+bot.command("help", async (ctx) => {
+  const fromId = ctx.from?.id;
+  if (!fromId) return;
+  const isSA = fromId ? await isSuperAdmin(fromId) : false;
+
+  const helpText =
+    `🤖 <b>@${botUsername} — Commands</b>\n\n` +
+
+    `<b>👮 Moderation</b>\n` +
+    `/warn — warn a user (reply or +userId)\n` +
+    `/unwarn — remove one warning\n` +
+    `/resetwarns — reset all warnings\n` +
+    `/warns — show warning count\n` +
+    `/ban [time] — ban a user\n` +
+    `/unban — unban a user\n` +
+    `/mute [time] — mute a user\n` +
+    `/unmute — unmute a user\n` +
+    `/kick — kick a user\n` +
+    `/del — delete replied message\n` +
+    `/pin — pin replied message\n\n` +
+
+    `<b>⚙️ Control Panel</b>\n` +
+    `/cp — open control panel (all settings)\n` +
+    `/cp (reply) — open user action panel\n\n` +
+
+    `<b>📌 Utility</b>\n` +
+    `/id · /me — show user info\n` +
+    `/redeem [token] — authorize group\n` +
+    `/cancel — cancel pending action\n` +
+    `/edit — edit a bot message (reply)\n\n` +
+
+    (isSA
+      ? `<b>👑 Super Admin</b>\n` +
+        `/gban [time] — global ban\n` +
+        `/ungban — remove global ban\n` +
+        `/gmute [time] — global mute\n` +
+        `/ungmute — remove global mute\n` +
+        `/gbl on|off — toggle global BL for group\n` +
+        `/broadcast — broadcast to all groups\n` +
+        `/genkey [uses] [days] — generate auth key\n` +
+        `/setlog — set log channel (use in channel)\n` +
+        `/clearlog — clear log channel\n` +
+        `/sync — sync admin list\n` +
+        `/backup · /restore — group settings backup\n` +
+        `/get [groupId] — get group info\n` +
+        `/resetrestriction — clear a user's restrictions\n` +
+        `/adminpanel · /resetpass · /resetpassdefault — web panel\n\n`
+      : "") +
+
+    `<b>⏱ Duration format</b>\n` +
+    `<code>30s</code> · <code>10m</code> · <code>2h</code> · <code>7d</code> · <code>1w</code>\n` +
+    `Omit for permanent action.\n\n` +
+
+    `All settings are manageable via <b>/cp</b> panel.`;
+
+  await ctx.reply(helpText, { parse_mode: "HTML" });
 });
 
 // ── Captcha math text answer in PM ────────────────────────────────────────────
