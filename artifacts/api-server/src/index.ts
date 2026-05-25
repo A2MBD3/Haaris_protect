@@ -24,11 +24,15 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
 
-  // ── Keep-alive self-ping (prevents Replit from sleeping) ──────────────────
-  const domains = process.env["REPLIT_DOMAINS"];
-  const pingUrl = domains
-    ? `https://${domains.split(",")[0]!.trim()}/api/healthz`
-    : `http://localhost:${port}/api/healthz`;
+  // ── Keep-alive self-ping (prevents free-tier hosts from sleeping) ────────
+  const replitDomains = process.env["REPLIT_DOMAINS"];
+  const renderHostname = process.env["RENDER_EXTERNAL_HOSTNAME"];
+  const customPingUrl = process.env["PING_URL"];
+
+  const pingUrl = customPingUrl
+    ?? (renderHostname ? `https://${renderHostname}/api/healthz` : null)
+    ?? (replitDomains ? `https://${replitDomains.split(",")[0]!.trim()}/api/healthz` : null)
+    ?? `http://localhost:${port}/api/healthz`;
 
   logger.info({ pingUrl }, "Keep-alive pinger started (every 4 min)");
 
