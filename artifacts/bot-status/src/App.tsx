@@ -49,9 +49,15 @@ function useSettings() {
 
 // ── API hook ──────────────────────────────────────────────────────────────────
 
-function useApi(token: string) {
+function buildApiPrefix(): string {
+  const ext = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "");
+  if (ext) return `${ext}/api/admin`;
   const BASE = (import.meta.env.BASE_URL as string) || "/";
-  const prefix = `${BASE}api/admin`;
+  return `${BASE}api/admin`;
+}
+
+function useApi(token: string) {
+  const prefix = buildApiPrefix();
   const request = useCallback(async (path: string, options: RequestInit = {}) => {
     const res = await fetch(`${prefix}${path}`, {
       ...options,
@@ -266,8 +272,8 @@ function Login({ onLogin }: { onLogin: (t: string) => void }) {
     if (!token.trim()) { setError("Please enter your admin password."); return; }
     setLoading(true); setError("");
     try {
-      const BASE = (import.meta.env.BASE_URL as string) || "/";
-      const res = await fetch(`${BASE}api/admin/info`, { headers: { Authorization: `Bearer ${token}` } });
+      const prefix = buildApiPrefix();
+      const res = await fetch(`${prefix}/info`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) { localStorage.setItem("admin_token", token); onLogin(token); }
       else setError("Wrong password. Send /adminpanel to the bot in Telegram to get yours.");
     } catch { setError("Cannot reach the server. Is the bot running?"); }

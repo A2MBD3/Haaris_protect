@@ -452,59 +452,48 @@ bot.command("start", async (ctx) => {
 bot.command("help", async (ctx) => {
   const fromId = ctx.from?.id;
   if (!fromId) return;
-  const isSA = fromId ? await isSuperAdmin(fromId) : false;
+  const chat = ctx.chat;
+  const isGroup = chat?.type === "group" || chat?.type === "supergroup";
 
-  const helpText =
-    `🤖 <b>@${botUsername} — Commands</b>\n\n` +
+  if (isGroup) {
+    await ctx.reply(
+      `🤖 <b>@${botUsername}</b>\n\n` +
+      `<b>⚙️ Panel</b>\n/cp · /cp (reply to user)\n\n` +
+      `<b>👮 Moderation</b>\n/ban /unban /kick /mute /unmute\n/warn /unwarn /warns /resetwarns /del /pin\n\n` +
+      `<b>📋 Content</b>\n/filter /unfilter /filters\n/addbl /rmbl /bl /resetbl\n/lock /unlock /locks\n\n` +
+      `<b>⚙️ Settings</b>\n/welcome /setwelcome /captcha\n/antibot /antichannel /gbl\n/flood /floodaction /warnlimit /warnaction\n\n` +
+      `<b>📌 Notes</b>\n/note /getnote /delnote /notes · <code>#name</code>\n\n` +
+      `<b>✅ Approvals</b>\n/approve /unapprove /approved /unapproveall\n\n` +
+      `<b>🔗 Joinmust</b>\n/joinmust /unjoinmust /joinmustlist\n\n` +
+      `<b>🔧 Util</b>\n/id /me /redeem /backup /restore\n\n` +
+      `<b>⏱ Time</b>: <code>30s 10m 2h 7d 1w</code> — omit = permanent`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
 
-    `<b>👮 Moderation</b>\n` +
-    `/warn — warn a user (reply or +userId)\n` +
-    `/unwarn — remove one warning\n` +
-    `/resetwarns — reset all warnings\n` +
-    `/warns — show warning count\n` +
-    `/ban [time] — ban a user\n` +
-    `/unban — unban a user\n` +
-    `/mute [time] — mute a user\n` +
-    `/unmute — unmute a user\n` +
-    `/kick — kick a user\n` +
-    `/del — delete replied message\n` +
-    `/pin — pin replied message\n\n` +
+  if (await isSuperAdmin(fromId)) {
+    await ctx.reply(
+      `👑 <b>Super Admin Commands</b>\n\n` +
+      `<b>⚙️ Panel</b>\n/cp — SA control panel\n\n` +
+      `<b>🌍 Global</b>\n/gban /ungban /gmute /ungmute\n/listgbans /listgmutes\n\n` +
+      `<b>👑 Admins</b>\n/addsa /rmsa /listsa\n\n` +
+      `<b>🏘️ Groups</b>\n/listgroups /bangroup /unbangroup\n/sync /get [id|key]\n\n` +
+      `<b>🔑 Keys</b>\n/genkey [time] [uses] /listkeys /revokekey\n\n` +
+      `<b>📢 Broadcast</b>\n/broadcast [message]\n\n` +
+      `<b>📊 Logging</b>\n/setlog /clearlog\n\n` +
+      `<b>💾 Backup</b>\n/backup [groupId] /restore\n\n` +
+      `<b>🔐 Web Panel</b>\n/adminpanel /resetpass /resetpassdefault\n\n` +
+      `<b>🛠️ Util</b>\n/resetrestriction /edit /cancel /id`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
 
-    `<b>⚙️ Control Panel</b>\n` +
-    `/cp — open control panel (all settings)\n` +
-    `/cp (reply) — open user action panel\n\n` +
-
-    `<b>📌 Utility</b>\n` +
-    `/id · /me — show user info\n` +
-    `/redeem [token] — authorize group\n` +
-    `/cancel — cancel pending action\n` +
-    `/edit — edit a bot message (reply)\n\n` +
-
-    (isSA
-      ? `<b>👑 Super Admin</b>\n` +
-        `/gban [time] — global ban\n` +
-        `/ungban — remove global ban\n` +
-        `/gmute [time] — global mute\n` +
-        `/ungmute — remove global mute\n` +
-        `/gbl on|off — toggle global BL for group\n` +
-        `/broadcast — broadcast to all groups\n` +
-        `/genkey [uses] [days] — generate auth key\n` +
-        `/setlog — set log channel (use in channel)\n` +
-        `/clearlog — clear log channel\n` +
-        `/sync — sync admin list\n` +
-        `/backup · /restore — group settings backup\n` +
-        `/get [groupId] — get group info\n` +
-        `/resetrestriction — clear a user's restrictions\n` +
-        `/adminpanel · /resetpass · /resetpassdefault — web panel\n\n`
-      : "") +
-
-    `<b>⏱ Duration format</b>\n` +
-    `<code>30s</code> · <code>10m</code> · <code>2h</code> · <code>7d</code> · <code>1w</code>\n` +
-    `Omit for permanent action.\n\n` +
-
-    `All settings are manageable via <b>/cp</b> panel.`;
-
-  await ctx.reply(helpText, { parse_mode: "HTML" });
+  await ctx.reply(
+    `👋 I'm <b>@${botUsername}</b> — a Telegram group management bot.\n\nAdd me to your group as admin and authorize it with a token to use me.`,
+    { parse_mode: "HTML" },
+  );
 });
 
 // ── Captcha math text answer in PM ────────────────────────────────────────────
@@ -1733,6 +1722,516 @@ bot.command("resetpassdefault", async (ctx) => {
     `✅ <b>Password Reset to Default</b>\n\nThe admin panel password has been reverted to the default (derived from bot token). All custom sessions have been logged out.`,
     { parse_mode: "HTML" },
   );
+});
+
+// ── /filter /unfilter /filters ────────────────────────────────────────────────
+
+bot.command("filter", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const text = ctx.message?.text || "";
+  const body = text.replace(/^\/filter(@\w+)?\s*/i, "").trim();
+  const spaceIdx = body.indexOf(" ");
+  if (spaceIdx === -1 || !body) {
+    await ctx.reply("Usage: /filter [keyword] [reply text]\nExample: /filter hello Hello there!");
+    return;
+  }
+  const kw = body.slice(0, spaceIdx).toLowerCase();
+  const reply = body.slice(spaceIdx + 1).trim();
+  if (!reply) { await ctx.reply("Usage: /filter [keyword] [reply text]"); return; }
+  await addFilter(ctx.chat!.id, kw, reply);
+  await ctx.reply(`✅ Filter added: <code>${escapeHtml(kw)}</code> → ${escapeHtml(reply)}`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `💬 <b>Filter added:</b> <code>${escapeHtml(kw)}</code> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("unfilter", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /unfilter [keyword]"); return; }
+  const ok = await removeFilter(ctx.chat!.id, args[0].toLowerCase());
+  await ctx.reply(ok ? `✅ Filter <code>${escapeHtml(args[0])}</code> removed.` : `❌ Filter not found.`, { parse_mode: "HTML" });
+});
+
+bot.command("filters", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const list = await listFilters(chat.id);
+  if (list.length === 0) { await ctx.reply("📋 No filters set."); return; }
+  const lines = list.map((f, i) => `${i + 1}. <code>${escapeHtml(f.word)}</code> → ${escapeHtml(f.reply)}`).join("\n");
+  await ctx.reply(`💬 <b>Filters (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+// ── /addbl /rmbl /bl /resetbl ─────────────────────────────────────────────────
+
+bot.command("addbl", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /addbl [word]"); return; }
+  await addBlacklistWord(ctx.chat!.id, args[0].toLowerCase());
+  await ctx.reply(`✅ <code>${escapeHtml(args[0])}</code> added to blacklist.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `⛔ <b>BL word added:</b> <code>${escapeHtml(args[0])}</code> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("rmbl", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /rmbl [word]"); return; }
+  const ok = await removeBlacklistWord(ctx.chat!.id, args[0].toLowerCase());
+  await ctx.reply(ok ? `✅ <code>${escapeHtml(args[0])}</code> removed from blacklist.` : `❌ Word not found.`, { parse_mode: "HTML" });
+});
+
+bot.command("bl", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const list = await listBlacklist(chat.id);
+  if (list.length === 0) { await ctx.reply("📋 Blacklist is empty."); return; }
+  const lines = list.map((b, i) => `${i + 1}. <code>${escapeHtml(b)}</code>`).join("\n");
+  await ctx.reply(`⛔ <b>Blacklist (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+bot.command("resetbl", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  await resetBlacklist(ctx.chat!.id);
+  await ctx.reply("✅ Blacklist cleared.");
+  await logSettings(ctx.api, `🗑️ <b>Blacklist cleared</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+// ── /lock /unlock /locks ──────────────────────────────────────────────────────
+
+bot.command("lock", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const type = args[0]?.toLowerCase() as LockType | undefined;
+  if (!type || !LOCK_TYPES.includes(type as LockType)) {
+    await ctx.reply(`Usage: /lock [type]\nTypes: ${LOCK_TYPES.join(", ")}`);
+    return;
+  }
+  await addLock(ctx.chat!.id, type as LockType);
+  await ctx.reply(`🔒 <b>${type}</b> locked.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🔒 <b>Locked:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("unlock", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const type = args[0]?.toLowerCase();
+  if (!type || !LOCK_TYPES.includes(type as LockType)) {
+    await ctx.reply(`Usage: /unlock [type]\nTypes: ${LOCK_TYPES.join(", ")}`);
+    return;
+  }
+  await removeLock(ctx.chat!.id, type as LockType);
+  await ctx.reply(`🔓 <b>${type}</b> unlocked.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🔓 <b>Unlocked:</b> ${type} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("locks", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const locksSet = await getLocks(chat.id);
+  if (locksSet.size === 0) { await ctx.reply("🔓 No locks active."); return; }
+  await ctx.reply(`🔒 <b>Active locks:</b> ${Array.from(locksSet).join(", ")}`, { parse_mode: "HTML" });
+});
+
+// ── /welcome /setwelcome ──────────────────────────────────────────────────────
+
+bot.command("welcome", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const arg = args[0]?.toLowerCase();
+  if (arg === "on" || arg === "y") {
+    await updateGroupSettings(ctx.chat!.id, { welcomeEnabled: true });
+    await ctx.reply("✅ Welcome message enabled.");
+    await logSettings(ctx.api, `👋 <b>Welcome enabled</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+  } else if (arg === "off" || arg === "n") {
+    await updateGroupSettings(ctx.chat!.id, { welcomeEnabled: false });
+    await ctx.reply("✅ Welcome message disabled.");
+    await logSettings(ctx.api, `👋 <b>Welcome disabled</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+  } else {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(
+      `👋 Welcome: <b>${s.welcomeEnabled ? "On" : "Off"}</b>\n\nMessage:\n${escapeHtml(s.welcomeMessage || "(default)")}\n\nUsage: /welcome on|off\nSet text: /setwelcome [text]\nVars: {name} {group} {id} {username}`,
+      { parse_mode: "HTML" },
+    );
+  }
+});
+
+bot.command("setwelcome", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const text = ctx.message?.text || "";
+  const msg = text.replace(/^\/setwelcome(@\w+)?\s*/i, "").trim();
+  if (!msg) { await ctx.reply("Usage: /setwelcome [message]\nVars: {name} {group} {id} {username}"); return; }
+  await updateGroupSettings(ctx.chat!.id, { welcomeMessage: msg, welcomeEnabled: true });
+  await ctx.reply(`✅ Welcome message set and enabled:\n\n${escapeHtml(msg)}`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `👋 <b>Welcome message set</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+// ── /captcha /antibot /antichannel ────────────────────────────────────────────
+
+bot.command("captcha", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const arg = args[0]?.toLowerCase();
+  if (arg !== "on" && arg !== "off" && arg !== "y" && arg !== "n") {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(`🤖 Captcha: <b>${s.captchaEnabled ? "On" : "Off"}</b>\nUsage: /captcha on|off`, { parse_mode: "HTML" });
+    return;
+  }
+  const enabled = arg === "on" || arg === "y";
+  await updateGroupSettings(ctx.chat!.id, { captchaEnabled: enabled });
+  await ctx.reply(`✅ Captcha ${enabled ? "enabled" : "disabled"}.`);
+  await logSettings(ctx.api, `🤖 <b>Captcha ${enabled ? "on" : "off"}</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("antibot", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const arg = args[0]?.toLowerCase();
+  if (arg !== "on" && arg !== "off" && arg !== "y" && arg !== "n") {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(`🤖 Antibot: <b>${s.antibot ? "On" : "Off"}</b>\nUsage: /antibot on|off`, { parse_mode: "HTML" });
+    return;
+  }
+  const enabled = arg === "on" || arg === "y";
+  await updateGroupSettings(ctx.chat!.id, { antibot: enabled });
+  await ctx.reply(`✅ Antibot ${enabled ? "enabled" : "disabled"}.`);
+  await logSettings(ctx.api, `🤖 <b>Antibot ${enabled ? "on" : "off"}</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("antichannel", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const arg = args[0]?.toLowerCase();
+  if (arg !== "on" && arg !== "off" && arg !== "y" && arg !== "n") {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(`📛 Antichannel: <b>${s.antichannel ? "On" : "Off"}</b>\nUsage: /antichannel on|off`, { parse_mode: "HTML" });
+    return;
+  }
+  const enabled = arg === "on" || arg === "y";
+  await updateGroupSettings(ctx.chat!.id, { antichannel: enabled });
+  await ctx.reply(`✅ Antichannel ${enabled ? "enabled" : "disabled"}.`);
+  await logSettings(ctx.api, `📛 <b>Antichannel ${enabled ? "on" : "off"}</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+// ── /flood /floodaction /warnlimit /warnaction ────────────────────────────────
+
+bot.command("flood", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(
+      `🌊 Flood limit: <b>${s.floodLimit || "Off"}</b>  Action: <b>${s.floodAction}</b>\n\nUsage: /flood [limit]  (0 = off, min 3)`,
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+  const limit = parseInt(args[0], 10);
+  if (isNaN(limit) || limit < 0) { await ctx.reply("❌ Use 0 to disable, or 3–100."); return; }
+  await updateGroupSettings(ctx.chat!.id, { floodLimit: limit });
+  await ctx.reply(limit === 0 ? "✅ Flood control disabled." : `✅ Flood limit set to <b>${limit}</b> messages.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🌊 <b>Flood limit:</b> ${limit} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("floodaction", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const action = args[0]?.toLowerCase();
+  if (!action || !["ban", "mute", "kick"].includes(action)) {
+    await ctx.reply("Usage: /floodaction ban|mute|kick");
+    return;
+  }
+  await updateGroupSettings(ctx.chat!.id, { floodAction: action as "ban" | "mute" | "kick" });
+  await ctx.reply(`✅ Flood action set to <b>${action}</b>.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🌊 <b>Flood action:</b> ${action} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("warnlimit", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) {
+    const s = await getGroupSettings(ctx.chat!.id);
+    await ctx.reply(`⚠️ Warn limit: <b>${s.warnLimit}</b>\nUsage: /warnlimit [number]`, { parse_mode: "HTML" });
+    return;
+  }
+  const n = parseInt(args[0], 10);
+  if (isNaN(n) || n < 1) { await ctx.reply("❌ Must be at least 1."); return; }
+  await updateGroupSettings(ctx.chat!.id, { warnLimit: n });
+  await ctx.reply(`✅ Warn limit set to <b>${n}</b>.`, { parse_mode: "HTML" });
+});
+
+bot.command("warnaction", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const action = args[0]?.toLowerCase();
+  if (!action || !["ban", "mute", "kick"].includes(action)) {
+    await ctx.reply("Usage: /warnaction ban|mute|kick");
+    return;
+  }
+  await updateGroupSettings(ctx.chat!.id, { warnAction: action as "ban" | "mute" | "kick" });
+  await ctx.reply(`✅ Warn action set to <b>${action}</b>.`, { parse_mode: "HTML" });
+});
+
+// ── /note /getnote /delnote /notes ────────────────────────────────────────────
+
+bot.command("note", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const text = ctx.message?.text || "";
+  const body = text.replace(/^\/note(@\w+)?\s*/i, "").trim();
+  const spaceIdx = body.indexOf(" ");
+  if (spaceIdx === -1 || !body) {
+    await ctx.reply("Usage: /note [name] [content]\nExample: /note rules 1. Be respectful");
+    return;
+  }
+  const name = body.slice(0, spaceIdx).toLowerCase();
+  const content = body.slice(spaceIdx + 1).trim();
+  if (!content) { await ctx.reply("Usage: /note [name] [content]"); return; }
+  await saveNote(ctx.chat!.id, name, content, ctx.from!.id);
+  await ctx.reply(`✅ Note <code>#${escapeHtml(name)}</code> saved.`, { parse_mode: "HTML" });
+});
+
+bot.command("getnote", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /getnote [name]  or type #name in chat"); return; }
+  const content = await getNote(chat.id, args[0].toLowerCase());
+  if (!content) { await ctx.reply(`❌ Note <code>${escapeHtml(args[0])}</code> not found.`, { parse_mode: "HTML" }); return; }
+  await ctx.reply(content, { parse_mode: "HTML" });
+});
+
+bot.command("delnote", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /delnote [name]"); return; }
+  const ok = await removeNote(ctx.chat!.id, args[0].toLowerCase());
+  await ctx.reply(ok ? `✅ Note <code>#${escapeHtml(args[0])}</code> deleted.` : `❌ Note not found.`, { parse_mode: "HTML" });
+});
+
+bot.command("notes", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const list = await listNotes(chat.id);
+  if (list.length === 0) { await ctx.reply("📋 No notes saved."); return; }
+  const lines = list.map((n, i) => `${i + 1}. <code>#${escapeHtml(n.name)}</code>`).join("\n");
+  await ctx.reply(`📌 <b>Notes (${list.length})</b>\n\n${lines}\n\n<i>Type #name in chat to get.</i>`, { parse_mode: "HTML" });
+});
+
+// ── /approve /unapprove /approved /unapproveall ───────────────────────────────
+
+bot.command("approve", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const target = await resolveTarget(ctx, splitArgs(ctx.message?.text));
+  if (!target) { await ctx.reply("Usage: /approve — reply to user, or /approve [userId]"); return; }
+  await approveUser(ctx.chat!.id, target.id, ctx.from!.id);
+  await ctx.reply(`✅ <b>Approved</b> · ${userLink(target.id, target.name)}\n<i>Exempt from flood, locks, and blacklist.</i>`, { parse_mode: "HTML" });
+  await logMod(ctx.api, `✅ <b>Approved:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("unapprove", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const target = await resolveTarget(ctx, splitArgs(ctx.message?.text));
+  if (!target) { await ctx.reply("Usage: /unapprove — reply to user, or /unapprove [userId]"); return; }
+  await unapproveUser(ctx.chat!.id, target.id);
+  await ctx.reply(`✅ <b>Unapproved</b> · ${userLink(target.id, target.name)}`, { parse_mode: "HTML" });
+  await logMod(ctx.api, `🚫 <b>Unapproved:</b> ${userLink(target.id, target.name)} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("approved", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  if (!(await senderIsGroupAdmin(ctx))) { await ctx.reply("❌ Only group admins can view this."); return; }
+  const list = await listApproved(chat.id);
+  if (list.length === 0) { await ctx.reply("📋 No approved users."); return; }
+  const lines = list.map((a, i) => `${i + 1}. ${userLink(a.userId, String(a.userId))}`).join("\n");
+  await ctx.reply(`✅ <b>Approved users (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+bot.command("unapproveall", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  await unapproveAll(ctx.chat!.id);
+  await ctx.reply("✅ All approvals cleared.");
+  await logMod(ctx.api, `🗑️ <b>All approvals cleared</b> in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+// ── /joinmust /unjoinmust /joinmustlist ───────────────────────────────────────
+
+bot.command("joinmust", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /joinmust @channel  or  /joinmust -100123456789"); return; }
+  const raw = args[0];
+  let targetId: number;
+  let targetUsername: string | null = null;
+  if (raw.startsWith("@")) {
+    targetUsername = raw.slice(1);
+    try {
+      const ch = await ctx.api.getChat(raw);
+      targetId = ch.id;
+    } catch {
+      await ctx.reply(`❌ Could not find ${raw}. Make sure the bot is a member of that channel.`);
+      return;
+    }
+  } else {
+    const id = parseUserId(raw);
+    if (!id) { await ctx.reply("❌ Invalid. Use @username or numeric ID."); return; }
+    targetId = id;
+  }
+  await addJoinMust(ctx.chat!.id, targetId, targetUsername);
+  await ctx.reply(
+    `✅ New members must join ${targetUsername ? `@${targetUsername}` : `<code>${targetId}</code>`} before chatting.`,
+    { parse_mode: "HTML" },
+  );
+  await logSettings(ctx.api, `🔗 <b>Joinmust added:</b> ${targetUsername || targetId} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("unjoinmust", async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /unjoinmust @channel  or  /unjoinmust -100123456789"); return; }
+  const raw = args[0];
+  let targetId: number | null = null;
+  if (raw.startsWith("@")) {
+    try { const ch = await ctx.api.getChat(raw); targetId = ch.id; } catch {}
+  } else {
+    targetId = parseUserId(raw);
+  }
+  if (!targetId) { await ctx.reply("❌ Could not resolve that channel."); return; }
+  await removeJoinMust(ctx.chat!.id, targetId);
+  await ctx.reply(`✅ Joinmust requirement removed for <code>${targetId}</code>.`, { parse_mode: "HTML" });
+  await logSettings(ctx.api, `🔗 <b>Joinmust removed:</b> ${targetId} in ${fmtGroupCtx(ctx)} by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("joinmustlist", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat || (chat.type !== "group" && chat.type !== "supergroup")) return;
+  const list = await getJoinMustList(chat.id);
+  if (list.length === 0) { await ctx.reply("📋 No joinmust requirements."); return; }
+  const lines = list.map((jm, i) =>
+    `${i + 1}. ${jm.targetUsername ? `@${jm.targetUsername}` : `<code>${jm.targetId}</code>`}`,
+  ).join("\n");
+  await ctx.reply(`🔗 <b>Joinmust (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+// ── /addsa /rmsa /listsa ──────────────────────────────────────────────────────
+
+bot.command("addsa", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const id = parseUserId(args[0]);
+  if (!id) { await ctx.reply("Usage: /addsa [userId]"); return; }
+  if (isHardcodedSuper(id)) { await ctx.reply("⚠️ That user is already a hardcoded super admin."); return; }
+  await addSuperAdmin(id);
+  await ctx.reply(`✅ <code>${id}</code> added as Super Admin.`, { parse_mode: "HTML" });
+  await logSecurity(ctx.api, `👑 <b>Super Admin added:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("rmsa", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const id = parseUserId(args[0]);
+  if (!id) { await ctx.reply("Usage: /rmsa [userId]"); return; }
+  if (isHardcodedSuper(id)) { await ctx.reply("❌ Cannot remove a hardcoded super admin."); return; }
+  await removeSuperAdmin(id);
+  await ctx.reply(`✅ <code>${id}</code> removed from Super Admins.`, { parse_mode: "HTML" });
+  await logSecurity(ctx.api, `👑 <b>Super Admin removed:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("listsa", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const saSet = await getSuperAdmins();
+  const saArr = Array.from(saSet);
+  const lines = saArr.map((id, i) =>
+    `${i + 1}. <code>${id}</code>${isHardcodedSuper(id) ? " 🔒" : ""}`,
+  ).join("\n");
+  await ctx.reply(
+    `👑 <b>Super Admins (${saArr.length})</b>\n\n${saArr.length ? lines : "(none)"}\n\n🔒 = hardcoded`,
+    { parse_mode: "HTML" },
+  );
+});
+
+// ── /listgroups /bangroup /unbangroup ─────────────────────────────────────────
+
+bot.command("listgroups", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const groups = await listGroups();
+  if (groups.length === 0) { await ctx.reply("No groups registered."); return; }
+  const lines = groups.map((g, i) =>
+    `${i + 1}. <b>${escapeHtml(g.title || "—")}</b> <code>${g.groupId}</code>` +
+    (g.banned ? " 🚫" : g.authorized ? " ✅" : " ⏳"),
+  ).join("\n");
+  await ctx.reply(
+    `🏘️ <b>Groups (${groups.length})</b>\n✅ auth  ⏳ pending  🚫 banned\n\n${lines}`,
+    { parse_mode: "HTML" },
+  );
+});
+
+bot.command("bangroup", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const id = parseUserId(args[0]);
+  if (!id) { await ctx.reply("Usage: /bangroup [groupId]"); return; }
+  await setGroupBanned(id, true);
+  try { await ctx.api.sendMessage(id, "🚫 This group has been banned from using this bot."); } catch {}
+  try { await ctx.api.leaveChat(id); } catch {}
+  await ctx.reply(`✅ Group <code>${id}</code> banned and left.`, { parse_mode: "HTML" });
+  await logSecurity(ctx.api, `🚫 <b>Group banned:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
+});
+
+bot.command("unbangroup", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  const id = parseUserId(args[0]);
+  if (!id) { await ctx.reply("Usage: /unbangroup [groupId]"); return; }
+  await setGroupBanned(id, false);
+  await ctx.reply(`✅ Group <code>${id}</code> unbanned.`, { parse_mode: "HTML" });
+  await logSecurity(ctx.api, `✅ <b>Group unbanned:</b> <code>${id}</code> by ${fmtAdmin(ctx)}`);
+});
+
+// ── /listkeys /revokekey ──────────────────────────────────────────────────────
+
+bot.command("listkeys", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const keys = await listAuthKeys();
+  if (keys.length === 0) { await ctx.reply("No auth keys found."); return; }
+  const now = Date.now();
+  const lines = keys.map((k, i) => {
+    const expired = k.expiresAt && k.expiresAt.getTime() < now;
+    const exhausted = k.usedCount >= k.maxUses;
+    const status = expired ? "⚠️" : exhausted ? "🔴" : "✅";
+    const expStr = k.expiresAt ? k.expiresAt.toISOString().slice(0, 10) : "perm";
+    return `${i + 1}. ${status} <code>${k.key}</code> — ${k.usedCount}/${k.maxUses}  exp: ${expStr}`;
+  }).join("\n");
+  await ctx.reply(`🔑 <b>Auth Keys (${keys.length})</b>\n✅ active  ⚠️ expired  🔴 used up\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+bot.command("revokekey", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const args = splitArgs(ctx.message?.text);
+  if (!args[0]) { await ctx.reply("Usage: /revokekey [key]"); return; }
+  await removeAuthKey(args[0].toUpperCase());
+  await ctx.reply(`✅ Key <code>${escapeHtml(args[0].toUpperCase())}</code> revoked.`, { parse_mode: "HTML" });
+  await logSecurity(ctx.api, `🗑️ <b>Auth key revoked:</b> <code>${escapeHtml(args[0].toUpperCase())}</code> by ${fmtAdmin(ctx)}`);
+});
+
+// ── /listgbans /listgmutes ────────────────────────────────────────────────────
+
+bot.command("listgbans", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const list = await listGlobalBans();
+  if (list.length === 0) { await ctx.reply("No global bans."); return; }
+  const lines = list.map((b, i) =>
+    `${i + 1}. <code>${b.userId}</code>${b.until ? ` — exp: ${b.until.toISOString().slice(0, 10)}` : " (perm)"}`,
+  ).join("\n");
+  await ctx.reply(`⛔ <b>Global Bans (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
+});
+
+bot.command("listgmutes", async (ctx) => {
+  if (!(await requireSuperAdmin(ctx))) return;
+  const list = await listGlobalMutes();
+  if (list.length === 0) { await ctx.reply("No global mutes."); return; }
+  const lines = list.map((m, i) =>
+    `${i + 1}. <code>${m.userId}</code>${m.until ? ` — exp: ${m.until.toISOString().slice(0, 10)}` : " (perm)"}`,
+  ).join("\n");
+  await ctx.reply(`🔇 <b>Global Mutes (${list.length})</b>\n\n${lines}`, { parse_mode: "HTML" });
 });
 
 // ── Error handler ─────────────────────────────────────────────────────────────
